@@ -83,6 +83,9 @@ pub struct Ui {
     active: i64                          // held down by the mouse
     focus: i64                           // the text field with the cursor
     cur: i64                             // the cursor in it (byte)
+    anchor: i64                          // the other end of the selection (byte); == cur — nothing selected
+    seldrag: i64                         // the field being selected with the mouse | 0
+    ishift: i64                          // how far the focused field's text is scrolled left (px)
     blocked: bool                        // the mouse is over a popup list
     lay: Lay
     st: [16]Lay
@@ -160,6 +163,31 @@ pub fn Text.set(t: *Text, s: str) {
 }
 
 pub fn Text.get(t: *Text) -> str { return t.b[0..t.n] }
+
+// remove bytes [a, b)
+pub fn Text.cut(t: *Text, a: i64, b: i64) {
+    k := b - a
+    for j in b..t.n { t.b[j - k] = t.b[j] }
+    t.n -= k
+}
+
+// insert n bytes of s at byte at, as many whole characters as fit -> how many bytes went in
+pub fn Text.ins(t: *Text, at: i64, s: *u8, n: i64) -> i64 {
+    var m = n
+    if t.n + m > 255 {
+        m = 255 - t.n
+        for m > 0 && (s[m] & 0xC0) == 0x80 { m -= 1 }
+    }
+    if m <= 0 { return 0 }
+    var j = t.n - 1
+    for j >= at {
+        t.b[j + m] = t.b[j]
+        j -= 1
+    }
+    for i in 0..m { t.b[at + i] = s[i] }
+    t.n += m
+    return m
+}
 
 // ---- fonts and images
 // a .ttf, .otf or .ttc font from a file | null
@@ -860,59 +888,114 @@ pub fn Ui.tabs(u: *Ui, v: *i64, items: str) -> bool {
     return changed
 }
 
-// a text field: any language and layout -> whether the text changed
+// a text field: any language and layout, selection with the mouse and Shift,
+// Ctrl+A / C / X / V (and Ctrl+Insert, Shift+Insert, Shift+Delete) -> whether the text changed
 pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     u.id += 1
     id := u.id
     r := u.slot(u.m.h)
     pad := u.dp(12)
     hot := u.hot(r)
+    w := u.win
+    shift := w.down[KEY_SHIFT]
+    ctrl := w.down[KEY_CTRL] && !w.down[KEY_ALT]          // AltGr on Windows is Ctrl + Alt: that's typing
     if u.pressed {
         if hot {
+            if u.focus != id { u.ishift = 0 }
             u.focus = id
-            u.cur = font.fit(u.font, u.m.size, t.get(), u.mx - r.x - pad + u.dp(4))
+            u.cur = u.in_pos(t, r, pad)
+            if !shift { u.anchor = u.cur }
+            u.seldrag = id
         } else if u.focus == id {
             u.focus = 0
         }
     }
     focused := u.focus == id
+    if u.seldrag == id {
+        if !u.down || !focused { u.seldrag = 0 } else { u.cur = u.in_pos(t, r, pad) }
+    }
     var changed = false
     if focused {
         if u.cur > t.n { u.cur = t.n }
-        w := u.win
-        tn := w.ntext                    // typed during the frame, UTF-8
-        if tn > 0 && t.n + tn <= 255 {
-            var j = t.n - 1
-            for j >= u.cur {
-                t.b[j + tn] = t.b[j]
-                j -= 1
+        if u.anchor > t.n { u.anchor = t.n }
+        lo := draw.imin(u.cur, u.anchor)
+        hi := draw.imax(u.cur, u.anchor)
+        if ctrl && w.hit['a'] {
+            u.anchor = 0
+            u.cur = t.n
+        }
+        if hi > lo && ((ctrl && (w.hit['c'] || w.hit['x'] || w.hit[KEY_INSERT])) || (shift && w.hit[KEY_DELETE])) {
+            clip_set(t.get()[lo..hi])
+        }
+        if (ctrl && w.hit['x']) || (shift && !ctrl && w.hit[KEY_DELETE]) {
+            if u.in_cut(t) { changed = true }
+        } else if (ctrl && w.hit['v']) || (shift && !ctrl && w.hit[KEY_INSERT]) {
+            c := clip_get()
+            var b: [256]u8                   // one line: line breaks and tabs become spaces
+            var n = 0
+            for i in 0..@as(i64, c.span) {
+                if n >= 255 { break }
+                var ch = c[i]
+                if ch == 10 || ch == 9 { ch = ' ' }
+                if ch >= 32 && ch != 127 {
+                    b[n] = ch
+                    n += 1
+                }
             }
-            for i in 0..tn { t.b[u.cur + i] = w.text[i] }
-            t.n += tn
-            u.cur += tn
-            changed = true
+            if u.in_cut(t) { changed = true }
+            if u.in_put(t, &b[0], n) { changed = true }
         }
-        if w.hit[KEY_BACKSPACE] && u.cur > 0 {
-            var k = 1
-            for u.cur - k > 0 && (t.b[u.cur - k] & 0xC0) == 0x80 { k += 1 }
-            for j in u.cur..t.n { t.b[j - k] = t.b[j] }
-            t.n -= k
-            u.cur -= k
-            changed = true
+        tn := w.ntext                        // typed during the frame, UTF-8
+        if tn > 0 {
+            if u.in_cut(t) { changed = true }
+            if u.in_put(t, &w.text[0], tn) { changed = true }
         }
-        if w.hit[KEY_DELETE] && u.cur < t.n {
-            k := font.ulen(t.b[u.cur])
-            for j in u.cur + k..t.n { t.b[j - k] = t.b[j] }
-            t.n -= k
-            changed = true
+        if w.hit[KEY_BACKSPACE] {
+            if u.in_cut(t) {
+                changed = true
+            } else if u.cur > 0 {
+                var k = 1
+                for u.cur - k > 0 && (t.b[u.cur - k] & 0xC0) == 0x80 { k += 1 }
+                t.cut(u.cur - k, u.cur)
+                u.cur -= k
+                changed = true
+            }
         }
-        if w.hit[KEY_LEFT] && u.cur > 0 {
-            u.cur -= 1
-            for u.cur > 0 && (t.b[u.cur] & 0xC0) == 0x80 { u.cur -= 1 }
+        if w.hit[KEY_DELETE] && !shift {
+            if u.in_cut(t) {
+                changed = true
+            } else if u.cur < t.n {
+                t.cut(u.cur, u.cur + font.ulen(t.b[u.cur]))
+                changed = true
+            }
         }
-        if w.hit[KEY_RIGHT] && u.cur < t.n { u.cur += font.ulen(t.b[u.cur]) }
-        if w.hit[KEY_HOME] { u.cur = 0 }
-        if w.hit[KEY_END] { u.cur = t.n }
+        var moved = false
+        if w.hit[KEY_LEFT] {
+            if !shift && u.cur != u.anchor {
+                u.cur = draw.imin(u.cur, u.anchor)
+            } else if u.cur > 0 {
+                u.cur -= 1
+                for u.cur > 0 && (t.b[u.cur] & 0xC0) == 0x80 { u.cur -= 1 }
+            }
+            moved = true
+        }
+        if w.hit[KEY_RIGHT] {
+            if !shift && u.cur != u.anchor {
+                u.cur = draw.imax(u.cur, u.anchor)
+            } else if u.cur < t.n {
+                u.cur += font.ulen(t.b[u.cur])
+            }
+            moved = true
+        }
+        if w.hit[KEY_HOME] {
+            u.cur = 0
+            moved = true
+        }
+        if w.hit[KEY_END] {
+            u.cur = t.n
+            moved = true
+        }
+        if moved && !shift { u.anchor = u.cur }
         if w.hit[KEY_ENTER] || w.hit[KEY_ESC] { u.focus = 0 }
     }
     var border = u.m.border
@@ -930,11 +1013,26 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     cy1 := u.c.cy1
     draw.clip(u.c, r.x + 2, r.y, r.w - 4, r.h)
     s := t.get()
+    avail := r.w - 2 * pad
+    var shiftx = 0
     tw := font.width(u.font, u.m.size, s[0..u.cur])
-    var sx = r.x + pad
-    if tw > r.w - 2 * pad { sx = r.x + r.w - pad - tw }      // the cursor is always visible
+    if focused {                             // scroll the text so the cursor stays visible
+        if tw - u.ishift > avail { u.ishift = tw - avail }
+        if tw < u.ishift { u.ishift = tw }
+        full := font.width(u.font, u.m.size, s)
+        if u.ishift > 0 && full - u.ishift < avail { u.ishift = draw.imax(0, full - avail) }
+        shiftx = u.ishift
+    }
+    sx := r.x + pad - shiftx
     lh := font.line_h(u.font, u.m.size)
     ty := r.y + (r.h - lh) / 2
+    if focused && u.cur != u.anchor {
+        lo := draw.imin(u.cur, u.anchor)
+        hi := draw.imax(u.cur, u.anchor)
+        x0 := sx + font.width(u.font, u.m.size, s[0..lo])
+        x1 := sx + font.width(u.font, u.m.size, s[0..hi])
+        draw.fill_a(u.c, x0, ty, x1 - x0, lh, u.m.accent, 90)
+    }
     if t.n == 0 && !focused {
         font.text(u.c, u.font, u.m.size, sx, ty, u.m.dim, 255, hint)
     } else {
@@ -949,6 +1047,29 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     u.c.cx1 = cx1
     u.c.cy1 = cy1
     return changed
+}
+
+fn Ui.in_pos(u: *Ui, t: *Text, r: Rect, pad: i64) -> i64 {    // the byte under the mouse
+    var x = u.mx - r.x - pad + u.dp(4)
+    if u.focus == u.id { x += u.ishift }
+    if x <= 0 { return 0 }
+    return font.fit(u.font, u.m.size, t.get(), x)
+}
+
+fn Ui.in_cut(u: *Ui, t: *Text) -> bool {   // delete the selection -> whether there was one
+    if u.cur == u.anchor { return false }
+    lo := draw.imin(u.cur, u.anchor)
+    t.cut(lo, draw.imax(u.cur, u.anchor))
+    u.cur = lo
+    u.anchor = lo
+    return true
+}
+
+fn Ui.in_put(u: *Ui, t: *Text, s: *u8, n: i64) -> bool {   // insert at the cursor -> whether anything fit
+    k := t.ins(u.cur, s, n)
+    u.cur += k
+    u.anchor = u.cur
+    return k > 0
 }
 
 // ---- direct drawing (logical page coordinates)

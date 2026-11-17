@@ -80,7 +80,6 @@ The cursor and Backspace move by characters, not bytes: «ж» or «é» is eras
 * Text runs left to right, without kerning or ligatures. Latin, Cyrillic, Greek, Armenian, Georgian, Chinese, Japanese and Korean look right.
 * There's no complex script shaping: Arabic letters don't join, Hebrew and Arabic aren't reordered right to left, and in Devanagari and other Indic scripts the signs aren't reordered.
 * There are no input methods on Linux (fcitx, ibus): CJK characters can be shown there but not typed.
-* There's no clipboard.
 
 ## Text width
 

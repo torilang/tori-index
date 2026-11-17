@@ -50,7 +50,7 @@ It has every widget, dark and light themes, accent colors, custom fonts (Fira Sa
 
 **Fonts.** Anti-aliased TrueType and OpenType vector fonts: `.ttf`, `.otf` (CFF outlines) and `.ttc` collections. A glyph is rasterized once per size and then taken from the cache. Noto Sans is built in: Latin, Cyrillic and common symbols. Load your own with `shoji.load_font("file.ttf")`. When a font lacks a character, shoji looks in the fallbacks: first your own (`shoji.fallback(f)`), then the system fonts — Noto, DejaVu, WenQuanYi on Linux, Segoe UI, Microsoft YaHei, Malgun Gothic and others on Windows. So Greek, Georgian, Armenian, Hebrew, Thai, Chinese, Japanese and Korean text shows up with no setup.
 
-**Input in any language.** A text field takes the typed characters from the window (`win.text`) with the layout already applied: English, German, Russian, Greek or any other, Caps Lock, AltGr, dead keys (´ + e = é). On Windows input methods (IME) for Chinese, Japanese and Korean work too.
+**Input in any language.** A text field takes the typed characters from the window (`win.text`) with the layout already applied: English, German, Russian, Greek or any other, Caps Lock, AltGr, dead keys (´ + e = é). Text is selected with the mouse or Shift + arrows, and Ctrl+A / C / X / V work with the system clipboard. On Windows input methods (IME) for Chinese, Japanese and Korean work too.
 
 **Images.** PNG of any color type, depth 1–16 bits, with transparency; interlaced files are not supported. Scaling is bilinear, and the final size is cached.
 
@@ -104,7 +104,7 @@ It has every widget, dark and light themes, accent colors, custom fonts (Fira Sa
 | `ui.progress(v, max)` | a progress bar |
 | `ui.dropdown(&v, "A\|B\|C") -> bool` | a dropdown; `v` — the index of the selected item |
 | `ui.tabs(&v, "A\|B\|C") -> bool` | tabs |
-| `ui.input(t, hint) -> bool` | a text field in any language; `t := shoji.text_new("")`, the text is `t.get()` (up to 255 bytes of UTF-8) |
+| `ui.input(t, hint) -> bool` | a text field in any language with selection and Ctrl+A / C / X / V; `t := shoji.text_new("")`, the text is `t.get()` (up to 255 bytes of UTF-8) |
 | `ui.image(img, h, radius)` | an image of height `h` with rounded corners |
 | `ui.separator()` | a line |
 
@@ -136,7 +136,6 @@ Coordinates are logical, from the top of the page (scrolling included).
 
 * Text runs left to right, without kerning, ligatures or complex script shaping: Arabic letters don't join, Hebrew and Arabic aren't reordered right to left, and Devanagari and other Indic scripts come out without reordering. Latin, Cyrillic, Greek, Armenian, Georgian, Chinese, Japanese and Korean look right.
 * There are no input methods on Linux (fcitx, ibus): CJK characters can only be typed on Windows through IME, but they display everywhere.
-* There is no clipboard.
 
 ## Modules
 

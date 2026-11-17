@@ -122,7 +122,7 @@ A field's text is kept in a `*Text` — a string of up to 255 bytes of UTF-8:
 | `t.n` | length in bytes |
 | `ui.input(t, hint) -> bool` | a text field; the hint shows in gray while the field is empty. `true` — the text changed |
 
-A click on the field puts the cursor in it; a click elsewhere, Enter or Esc removes it. ←, →, Home, End, Backspace and Delete work. You can type in any language and any layout (see [chapter 4](04-text.md#input-in-any-language)).
+A click on the field puts the cursor in it; a click elsewhere, Enter or Esc removes it. ←, →, Home, End, Backspace and Delete work. Text is selected by dragging the mouse, with Shift + click, Shift + arrows / Home / End, or all at once with Ctrl+A. Ctrl+C copies the selection to the system clipboard, Ctrl+X cuts it, Ctrl+V pastes (line breaks and tabs become spaces); Ctrl+Insert, Shift+Insert and Shift+Delete do the same. Typing replaces the selection. You can type in any language and any layout (see [chapter 4](04-text.md#input-in-any-language)).
 
 ```tori
 use shoji
@@ -139,7 +139,9 @@ fn main() {
 }
 ```
 
-`ui.focus` is the number of the widget with the cursor, `0` — none. Set `ui.focus = 0` to remove the cursor from code.
+`ui.focus` is the number of the widget with the cursor, `0` — none. Set `ui.focus = 0` to remove the cursor from code. `ui.cur` is the cursor and `ui.anchor` the other end of the selection (bytes); they are equal when nothing is selected.
+
+For your own widgets the clipboard is the built-in `clip_set(s)` and `clip_get()` (see the Tori docs, [Input, output, windows](https://github.com/torilang/tori/blob/main/docs/06-io.md#clipboard)).
 
 ## Images
 

@@ -78,7 +78,7 @@ All sizes and coordinates in `ui.…` calls are logical pixels (see [chapter 6](
 | `ui.progress(v, max)` | a progress bar |
 | `ui.dropdown(&v, options) -> bool` | a dropdown: picked |
 | `ui.tabs(&v, options) -> bool` | tabs: switched |
-| `ui.input(t, hint) -> bool` | a text field: the text changed |
+| `ui.input(t, hint) -> bool` | a text field with selection and Ctrl+A / C / X / V: the text changed |
 | `ui.image(img, h, radius)` | an image |
 
 ## Drawing
@@ -101,13 +101,14 @@ All sizes and coordinates in `ui.…` calls are logical pixels (see [chapter 6](
 | `zoom`, `dpi` | the zoom, %, and the screen DPI |
 | `scroll` | the page scroll |
 | `focus` | the number of the text field with the cursor, `0` — none |
+| `cur`, `anchor` | the cursor and the other end of the selection in it (bytes) |
 
 ## Types
 
 | Type | Fields |
 | :--- | :--- |
 | `Rect` | `x`, `y`, `w`, `h` |
-| `Text` | `n` — length in bytes; `get()`, `set(s)` |
+| `Text` | `n` — length in bytes; `get()`, `set(s)`, `cut(a, b)`, `ins(at, p, n)` |
 | `draw.Image` | `w`, `h`, `px` (`0xAARRGGBB`) |
 | `draw.Canvas` | `px` (`0xRRGGBB`), `w`, `h`, the clip `cx0`, `cy0`, `cx1`, `cy1` |
 | `font.Font` | a font: passed to `set_font`, `styled`, `text_at` |
