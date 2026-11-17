@@ -1,7 +1,0 @@
-{
-  "name": "math",
-  "author": "torilang",
-  "version": "0.1.0",
-  "description": "целочисленная математика: abs, min, max, pow, isqrt, gcd, lcm",
-  "license": "MIT"
-}
