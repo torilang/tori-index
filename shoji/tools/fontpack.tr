@@ -1,0 +1,191 @@
+// fontpack — .ttf -> src/font_data.tr: встроенный шрифт shoji (только нужные символы, контуры без хинтинга).
+//   cd tools && tori run fontpack.tr шрифт.ttf ../src/font_data.tr
+use shoji/font
+use shoji/sys
+use shoji/draw
+
+var out: *u8
+var on: i64
+
+fn byte(v: i64) {
+    out[on] = @as(u8, v & 255)
+    on += 1
+}
+
+fn varint(v: i64) {
+    var x = v
+    for x >= 128 {
+        byte((x & 127) | 128)
+        x = x >> 7
+    }
+    byte(x)
+}
+
+fn zz(v: i64) -> i64 {
+    if v < 0 { return (-v) * 2 - 1 }
+    return v * 2
+}
+
+fn rnd(v: f32) -> i64 { return draw.ffloor(v + 0.5) }
+
+fn want(cp: i64) -> bool {
+    if cp >= 0x20 && cp <= 0x7E { return true }
+    if cp >= 0xA0 && cp <= 0xFF { return true }
+    if cp >= 0x400 && cp <= 0x45F { return true }
+    if cp == 0x490 || cp == 0x491 { return true }
+    if cp >= 0x2010 && cp <= 0x2026 { return true }
+    if cp >= 0x2190 && cp <= 0x2195 { return true }
+    switch cp {
+        0x2030, 0x2039, 0x203A, 0x20AC, 0x20BD, 0x2116, 0x2122, 0x2212, 0x2264, 0x2265, 0xFFFD => return true
+    }
+    return false
+}
+
+fn arg(i: i64) -> str {
+    b := sys.read_file("/proc/self/cmdline")
+    var k = 0
+    var st = 0
+    for j in 0..@as(i64, b.span) {
+        if b[j] == 0 {
+            if k == i { return b[st..j] }
+            k += 1
+            st = j + 1
+        }
+    }
+    return ""
+}
+
+fn main() {
+    src := arg(1)
+    dst := arg(2)
+    f := font.load_ttf(sys.read_file(src))
+    if f == null {
+        say("fontpack: не TrueType-шрифт: ", src)
+        return
+    }
+    o := font.outline_new()
+    var cps: [2048]i64
+    var gids: [2048]i64
+    var n = 0
+    for cp in 0..0x10000 {
+        if want(cp) && n < 2048 {
+            g := font.index(f, cp)
+            if g != 0 || cp == 0x20 {
+                cps[n] = cp
+                gids[n] = g
+                n += 1
+            }
+        }
+    }
+    // контуры каждого глифа — отдельно, потом таблица и контуры подряд
+    glyphs := sys.alloc(0x400000)
+    gl := @as(*i64, sys.alloc(n * 8))
+    out = glyphs
+    on = 0
+    for i in 0..n {
+        st := on
+        font.outline(f, gids[i], o)
+        varint(o.nc)
+        var prev = -1
+        for c in 0..o.nc {
+            varint(o.ends[c] - prev)
+            prev = o.ends[c]
+        }
+        var x = 0
+        var y = 0
+        for k in 0..o.np {
+            nx := rnd(o.xs[k])
+            ny := rnd(o.ys[k])
+            varint((zz(nx - x) << 1) | @as(i64, o.on[k]))
+            varint(zz(ny - y))
+            x = nx
+            y = ny
+        }
+        gl[i] = on - st
+    }
+    gsize := on
+    data := sys.alloc(gsize + 0x100000)
+    out = data
+    on = 0
+    byte('S')
+    byte('H')
+    byte('F')
+    byte('1')
+    varint(f.upem)
+    varint(zz(f.asc))
+    varint(zz(f.desc))
+    varint(zz(f.gap))
+    varint(n)
+    var pc = 0
+    for i in 0..n {
+        varint(cps[i] - pc)
+        pc = cps[i]
+        varint(font.advance(f, gids[i]))
+        varint(gl[i])
+    }
+    for i in 0..gsize { byte(@as(i64, glyphs[i])) }
+    // base64 кусками по 60000 знаков
+    abc := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    txt := sys.alloc(on * 2 + 4096)
+    var t = 0
+    var chunks = 0
+    hdr := "// Встроенный шрифт shoji: Noto Sans Regular (SIL Open Font License 1.1, см. OFL-NotoSans.txt),\n// латиница, кириллица и знаки. Сгенерировано tools/fontpack.tr — руками не править.\npub fn chunk(i: i64) -> str {\n    switch i {\n"
+    for ch in hdr {
+        txt[t] = ch
+        t += 1
+    }
+    var i = 0
+    var col = 60000
+    for i < on {
+        if col >= 60000 {
+            if chunks > 0 {
+                txt[t] = '"'
+                txt[t + 1] = 10
+                t += 2
+            }
+            pre := "        "
+            for ch in pre {
+                txt[t] = ch
+                t += 1
+            }
+            if chunks >= 10 {
+                txt[t] = @as(u8, '0' + chunks / 10)
+                t += 1
+            }
+            txt[t] = @as(u8, '0' + chunks % 10)
+            t += 1
+            arrow := " => return \""
+            for ch in arrow {
+                txt[t] = ch
+                t += 1
+            }
+            chunks += 1
+            col = 0
+        }
+        var v = @as(i64, data[i]) << 16
+        if i + 1 < on { v = v | (@as(i64, data[i + 1]) << 8) }
+        if i + 2 < on { v = v | @as(i64, data[i + 2]) }
+        for k in 0..4 {
+            if i + k * 3 / 4 < on + 0 && !(k == 2 && i + 1 >= on) && !(k == 3 && i + 2 >= on) {
+                txt[t] = abc[(v >> (18 - k * 6)) & 63]
+                t += 1
+            }
+        }
+        i += 3
+        col += 4
+    }
+    tail := "\"\n    }\n    return \"\"\n}\n\npub const CHUNKS = "
+    for ch in tail {
+        txt[t] = ch
+        t += 1
+    }
+    if chunks >= 10 {
+        txt[t] = @as(u8, '0' + chunks / 10)
+        t += 1
+    }
+    txt[t] = @as(u8, '0' + chunks % 10)
+    txt[t + 1] = 10
+    t += 2
+    sys.write_file(dst, txt[0..t])
+    say("fontpack: ", n, " символов, ", on, " байт -> ", dst)
+}

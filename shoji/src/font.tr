@@ -1,0 +1,644 @@
+// font — векторные шрифты: TrueType (.ttf с контурами glyf) и встроенный шрифт shoji.
+// Глиф растеризуется со сглаживанием один раз на размер и дальше берётся из кэша.
+use sys
+use draw
+use font_data
+
+pub struct Font {
+    d: *u8                               // байты .ttf | распакованный встроенный шрифт
+    n: i64
+    packed: bool                         // встроенный формат shoji
+    upem: i64                            // единиц на em
+    asc: i64                             // над базовой линией (+)
+    desc: i64                            // под ней (-)
+    gap: i64
+    nglyphs: i64
+    glyf: i64
+    loca: i64
+    locfmt: i64
+    hmtx: i64
+    nhm: i64
+    cmap: i64                            // подтаблица cmap
+    cmapfmt: i64                         // 4 | 12
+    pn: i64                              // встроенный: число глифов,
+    pcp: *i64                            // их символы (по возрастанию),
+    padv: *i64                           // ширины
+    pofs: *i64                           // и где лежат контуры
+    slots: *Glyph                        // кэш растеризованных глифов
+    nslots: i64
+    used: i64
+}
+
+pub struct Glyph {
+    key: i64                             // (глиф + 1) << 16 | размер; 0 — пустой слот
+    w: i64
+    h: i64
+    ox: i64                              // смещение маски от пера и базовой линии
+    oy: i64
+    adv: i64                             // ширина в 1/64 пикселя
+    bm: *u8
+}
+
+// контур глифа: точки (единицы шрифта, y вверх), on — точка на кривой, ends — последняя точка контура
+pub struct Outline {
+    xs: *f32
+    ys: *f32
+    on: *u8
+    ends: *i64
+    np: i64
+    nc: i64
+}
+
+const MAXPT = 16384
+const MAXCT = 2048
+
+var ol: *Outline                         // общий для растеризации
+var builtin_font: *Font
+
+pub fn outline_new() -> *Outline {
+    o := @as(*Outline, sys.alloc(@size(Outline)))
+    o.xs = @as(*f32, sys.alloc(MAXPT * 4))
+    o.ys = @as(*f32, sys.alloc(MAXPT * 4))
+    o.on = sys.alloc(MAXPT)
+    o.ends = @as(*i64, sys.alloc(MAXCT * 8))
+    return o
+}
+
+// ---- чтение big-endian с проверкой границ
+fn b8(f: *Font, o: i64) -> i64 {
+    if o < 0 || o >= f.n { return 0 }
+    return @as(i64, f.d[o])
+}
+fn b16(f: *Font, o: i64) -> i64 { return (b8(f, o) << 8) | b8(f, o + 1) }
+fn s16(f: *Font, o: i64) -> i64 {
+    v := b16(f, o)
+    if v >= 0x8000 { return v - 0x10000 }
+    return v
+}
+fn s8(f: *Font, o: i64) -> i64 {
+    v := b8(f, o)
+    if v >= 0x80 { return v - 0x100 }
+    return v
+}
+fn b32(f: *Font, o: i64) -> i64 { return (b16(f, o) << 16) | b16(f, o + 2) }
+
+fn new_font() -> *Font {
+    f := @as(*Font, sys.alloc(@size(Font)))
+    f.nslots = 4096
+    f.slots = @as(*Glyph, sys.alloc(@size(Glyph) * f.nslots))
+    return f
+}
+
+// .ttf из байтов -> шрифт | null (не TrueType: например, .otf с CFF)
+pub fn load_ttf(data: str) -> *Font {
+    if data.span < 12 { return null }
+    f := new_font()
+    f.d = data.ptr
+    f.n = @as(i64, data.span)
+    ver := b32(f, 0)
+    if ver != 0x10000 && ver != 0x74727565 { return null }
+    var head = -1
+    var maxp = -1
+    var hhea = -1
+    f.glyf = -1
+    f.loca = -1
+    f.cmap = -1
+    f.hmtx = -1
+    var cmap = -1
+    for i in 0..b16(f, 4) {
+        r := 12 + i * 16
+        tag := b32(f, r)
+        off := b32(f, r + 8)
+        switch tag {
+            0x68656164 => head = off
+            0x6D617870 => maxp = off
+            0x68686561 => hhea = off
+            0x686D7478 => f.hmtx = off
+            0x6C6F6361 => f.loca = off
+            0x676C7966 => f.glyf = off
+            0x636D6170 => cmap = off
+        }
+    }
+    if head < 0 || maxp < 0 || hhea < 0 || f.glyf < 0 || f.loca < 0 || cmap < 0 || f.hmtx < 0 { return null }
+    f.upem = b16(f, head + 18)
+    f.locfmt = s16(f, head + 50)
+    f.nglyphs = b16(f, maxp + 4)
+    f.asc = s16(f, hhea + 4)
+    f.desc = s16(f, hhea + 6)
+    f.gap = s16(f, hhea + 8)
+    f.nhm = b16(f, hhea + 34)
+    if f.upem <= 0 || f.nhm <= 0 { return null }
+    var best = 0
+    for i in 0..b16(f, cmap + 2) {
+        r := cmap + 4 + i * 8
+        pid := b16(f, r)
+        eid := b16(f, r + 2)
+        sub := cmap + b32(f, r + 4)
+        fmt := b16(f, sub)
+        uni := pid == 0 || (pid == 3 && (eid == 1 || eid == 10))
+        if uni && fmt == 12 && best < 2 {
+            best = 2
+            f.cmap = sub
+            f.cmapfmt = 12
+        }
+        if uni && fmt == 4 && best < 1 {
+            best = 1
+            f.cmap = sub
+            f.cmapfmt = 4
+        }
+    }
+    if best == 0 { return null }
+    return f
+}
+
+// глиф символа cp (0 — нет такого)
+pub fn index(f: *Font, cp: i64) -> i64 {
+    if f.packed {
+        var lo = 0
+        var hi = f.pn
+        for lo < hi {
+            mid := (lo + hi) / 2
+            if f.pcp[mid] < cp { lo = mid + 1 } else { hi = mid }
+        }
+        if lo < f.pn && f.pcp[lo] == cp { return lo + 1 }
+        return 0
+    }
+    sub := f.cmap
+    if f.cmapfmt == 12 {
+        var lo = 0
+        var hi = b32(f, sub + 12)
+        for lo < hi {
+            mid := (lo + hi) / 2
+            g := sub + 16 + mid * 12
+            if b32(f, g + 4) < cp { lo = mid + 1 } else { hi = mid }
+        }
+        if lo >= b32(f, sub + 12) { return 0 }
+        g := sub + 16 + lo * 12
+        if b32(f, g) > cp { return 0 }
+        return b32(f, g + 8) + cp - b32(f, g)
+    }
+    if cp > 0xFFFF { return 0 }
+    segs := b16(f, sub + 6) / 2
+    ends := sub + 14
+    starts := ends + segs * 2 + 2
+    deltas := starts + segs * 2
+    ros := deltas + segs * 2
+    var lo = 0
+    var hi = segs
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if b16(f, ends + mid * 2) < cp { lo = mid + 1 } else { hi = mid }
+    }
+    if lo >= segs { return 0 }
+    st := b16(f, starts + lo * 2)
+    if st > cp { return 0 }
+    d := b16(f, deltas + lo * 2)
+    ro := b16(f, ros + lo * 2)
+    if ro == 0 { return (cp + d) & 0xFFFF }
+    g := b16(f, ros + lo * 2 + ro + (cp - st) * 2)
+    if g == 0 { return 0 }
+    return (g + d) & 0xFFFF
+}
+
+// ширина глифа в единицах шрифта
+pub fn advance(f: *Font, gid: i64) -> i64 {
+    if f.packed {
+        if gid < 1 || gid > f.pn { return f.upem / 2 }
+        return f.padv[gid - 1]
+    }
+    var k = gid
+    if k >= f.nhm { k = f.nhm - 1 }
+    return b16(f, f.hmtx + k * 4)
+}
+
+// контур глифа -> o (составные глифы собираются из частей)
+pub fn outline(f: *Font, gid: i64, o: *Outline) {
+    o.np = 0
+    o.nc = 0
+    if f.packed {
+        unpack_glyph(f, gid, o)
+    } else {
+        glyf_load(f, gid, o, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0)
+    }
+}
+
+fn f2(v: i64) -> f32 { return @as(f32, v) / 16384.0 }
+
+fn glyf_load(f: *Font, gid: i64, o: *Outline, ta: f32, tb: f32, tc: f32, td: f32, tx: f32, ty: f32, depth: i64) {
+    if gid < 0 || gid >= f.nglyphs || depth > 8 { return }
+    var off = 0
+    var next = 0
+    if f.locfmt == 0 {
+        off = b16(f, f.loca + gid * 2) * 2
+        next = b16(f, f.loca + gid * 2 + 2) * 2
+    } else {
+        off = b32(f, f.loca + gid * 4)
+        next = b32(f, f.loca + gid * 4 + 4)
+    }
+    if next <= off { return }
+    g := f.glyf + off
+    nc := s16(f, g)
+    if nc >= 0 {
+        np0 := o.np
+        if o.nc + nc > MAXCT { return }
+        var npts = 0
+        for c in 0..nc {
+            e := b16(f, g + 10 + c * 2)
+            o.ends[o.nc + c] = np0 + e
+            npts = e + 1
+        }
+        if np0 + npts > MAXPT { return }
+        var p = g + 12 + nc * 2 + b16(f, g + 10 + nc * 2)
+        var k = 0
+        for k < npts {
+            fl := b8(f, p)
+            p += 1
+            o.on[np0 + k] = @as(u8, fl)
+            k += 1
+            if (fl & 8) != 0 {
+                rep := b8(f, p)
+                p += 1
+                for r in 0..rep {
+                    if k < npts {
+                        o.on[np0 + k] = @as(u8, fl)
+                        k += 1
+                    }
+                }
+            }
+        }
+        var x = 0
+        for i in 0..npts {
+            fl := @as(i64, o.on[np0 + i])
+            if (fl & 2) != 0 {
+                v := b8(f, p)
+                p += 1
+                if (fl & 16) != 0 { x += v } else { x -= v }
+            } else if (fl & 16) == 0 {
+                x += s16(f, p)
+                p += 2
+            }
+            o.xs[np0 + i] = @as(f32, x)
+        }
+        var y = 0
+        for i in 0..npts {
+            fl := @as(i64, o.on[np0 + i])
+            if (fl & 4) != 0 {
+                v := b8(f, p)
+                p += 1
+                if (fl & 32) != 0 { y += v } else { y -= v }
+            } else if (fl & 32) == 0 {
+                y += s16(f, p)
+                p += 2
+            }
+            o.ys[np0 + i] = @as(f32, y)
+        }
+        for i in 0..npts {
+            px := o.xs[np0 + i]
+            py := o.ys[np0 + i]
+            o.xs[np0 + i] = ta * px + tc * py + tx
+            o.ys[np0 + i] = tb * px + td * py + ty
+            o.on[np0 + i] = o.on[np0 + i] & 1
+        }
+        o.np += npts
+        o.nc += nc
+        return
+    }
+    var p = g + 10                       // составной глиф
+    for {
+        fl := b16(f, p)
+        sub := b16(f, p + 2)
+        p += 4
+        var e = 0
+        var ff = 0
+        if (fl & 1) != 0 {
+            e = s16(f, p)
+            ff = s16(f, p + 2)
+            p += 4
+        } else {
+            e = s8(f, p)
+            ff = s8(f, p + 1)
+            p += 2
+        }
+        if (fl & 2) == 0 {               // точки-якоря вместо смещения: не поддерживаются
+            e = 0
+            ff = 0
+        }
+        var sa: f32 = 1.0
+        var sb: f32 = 0.0
+        var sc: f32 = 0.0
+        var sd: f32 = 1.0
+        if (fl & 8) != 0 {
+            sa = f2(s16(f, p))
+            sd = sa
+            p += 2
+        } else if (fl & 0x40) != 0 {
+            sa = f2(s16(f, p))
+            sd = f2(s16(f, p + 2))
+            p += 4
+        } else if (fl & 0x80) != 0 {
+            sa = f2(s16(f, p))
+            sb = f2(s16(f, p + 2))
+            sc = f2(s16(f, p + 4))
+            sd = f2(s16(f, p + 6))
+            p += 8
+        }
+        fe := @as(f32, e)
+        fff := @as(f32, ff)
+        glyf_load(f, sub, o, ta * sa + tc * sb, tb * sa + td * sb, ta * sc + tc * sd, tb * sc + td * sd,
+            ta * fe + tc * fff + tx, tb * fe + td * fff + ty, depth + 1)
+        if (fl & 0x20) == 0 { break }
+    }
+}
+
+// ---- встроенный шрифт: font_data.tr (base64) -> байты:
+// "SHF1", upem, asc, desc, gap, число глифов; глиф: Δсимвол, ширина, длина контуров; затем контуры:
+// число контуров, точек в каждом, точки: ((zz(Δx) << 1) | на_кривой), zz(Δy). Числа — varint.
+fn varint(d: *u8, p: *i64) -> i64 {
+    var v = 0
+    var sh = 0
+    for {
+        b := @as(i64, d[*p])
+        *p = *p + 1
+        v = v | ((b & 127) << sh)
+        sh += 7
+        if b < 128 { break }
+    }
+    return v
+}
+
+fn unzz(v: i64) -> i64 {
+    if (v & 1) != 0 { return -((v + 1) >> 1) }
+    return v >> 1
+}
+
+fn b64(c: u8) -> i64 {
+    if c >= 'A' && c <= 'Z' { return @as(i64, c - 'A') }
+    if c >= 'a' && c <= 'z' { return @as(i64, c - 'a') + 26 }
+    if c >= '0' && c <= '9' { return @as(i64, c - '0') + 52 }
+    if c == '+' { return 62 }
+    if c == '/' { return 63 }
+    return -1
+}
+
+pub fn builtin() -> *Font {
+    if builtin_font != null { return builtin_font }
+    var total = 0
+    for i in 0..font_data.CHUNKS { total += @as(i64, font_data.chunk(i).span) }
+    d := sys.alloc(total * 3 / 4 + 16)
+    var n = 0
+    var acc = 0
+    var bits = 0
+    for i in 0..font_data.CHUNKS {
+        for ch in font_data.chunk(i) {
+            v := b64(ch)
+            if v >= 0 {
+                acc = (acc << 6) | v
+                bits += 6
+                if bits >= 8 {
+                    bits -= 8
+                    d[n] = @as(u8, (acc >> bits) & 255)
+                    n += 1
+                }
+            }
+        }
+    }
+    f := new_font()
+    f.d = d
+    f.n = n
+    f.packed = true
+    var p = 4
+    f.upem = varint(d, &p)
+    f.asc = unzz(varint(d, &p))
+    f.desc = unzz(varint(d, &p))
+    f.gap = unzz(varint(d, &p))
+    f.pn = varint(d, &p)
+    f.pcp = @as(*i64, sys.alloc(f.pn * 8))
+    f.padv = @as(*i64, sys.alloc(f.pn * 8))
+    f.pofs = @as(*i64, sys.alloc(f.pn * 8))
+    lens := @as(*i64, sys.alloc(f.pn * 8))
+    var cp = 0
+    for i in 0..f.pn {
+        cp += varint(d, &p)
+        f.pcp[i] = cp
+        f.padv[i] = varint(d, &p)
+        lens[i] = varint(d, &p)
+    }
+    for i in 0..f.pn {
+        f.pofs[i] = p
+        p += lens[i]
+    }
+    builtin_font = f
+    return f
+}
+
+fn unpack_glyph(f: *Font, gid: i64, o: *Outline) {
+    if gid < 1 || gid > f.pn { return }
+    var p = f.pofs[gid - 1]
+    nc := varint(f.d, &p)
+    var np = 0
+    for c in 0..nc {
+        np += varint(f.d, &p)
+        o.ends[c] = np - 1
+    }
+    var x = 0
+    var y = 0
+    for i in 0..np {
+        v := varint(f.d, &p)
+        x += unzz(v >> 1)
+        y += unzz(varint(f.d, &p))
+        o.xs[i] = @as(f32, x)
+        o.ys[i] = @as(f32, y)
+        o.on[i] = @as(u8, v & 1)
+    }
+    o.np = np
+    o.nc = nc
+}
+
+// ---- растеризация и кэш
+fn qto(tx: *f32, ty: *f32, has: bool, cx: f32, cy: f32, x: f32, y: f32) {
+    if has { draw.rs_quad(*tx, *ty, cx, cy, x, y) } else { draw.rs_line(*tx, *ty, x, y) }
+    *tx = x
+    *ty = y
+}
+
+// контуры o в маску: точка (x, y) шрифта -> (x * s - bx, -y * s - by)
+fn fill_outline(o: *Outline, s: f32, bx: f32, by: f32) {
+    var st = 0
+    for c in 0..o.nc {
+        e := o.ends[c]
+        n := e - st + 1
+        if n >= 2 {
+            var sx: f32 = 0.0
+            var sy: f32 = 0.0
+            var first = st
+            var cnt = n - 1
+            if o.on[st] != 0 {
+                sx = o.xs[st]
+                sy = o.ys[st]
+                first = st + 1
+            } else if o.on[e] != 0 {
+                sx = o.xs[e]
+                sy = o.ys[e]
+            } else {
+                sx = (o.xs[st] + o.xs[e]) * 0.5
+                sy = (o.ys[st] + o.ys[e]) * 0.5
+                cnt = n
+            }
+            sx = sx * s - bx
+            sy = -sy * s - by
+            var cx = sx
+            var cy = sy
+            var has = false
+            var qx: f32 = 0.0
+            var qy: f32 = 0.0
+            for k in 0..cnt {
+                i := first + k
+                px := o.xs[i] * s - bx
+                py := -o.ys[i] * s - by
+                if o.on[i] != 0 {
+                    qto(&cx, &cy, has, qx, qy, px, py)
+                    has = false
+                } else {
+                    if has { qto(&cx, &cy, true, qx, qy, (qx + px) * 0.5, (qy + py) * 0.5) }
+                    qx = px
+                    qy = py
+                    has = true
+                }
+            }
+            qto(&cx, &cy, has, qx, qy, sx, sy)
+        }
+        st = e + 1
+    }
+}
+
+// глиф gid размера size пикселей (растеризуется при первом обращении)
+pub fn glyph(f: *Font, gid: i64, size: i64) -> *Glyph {
+    key := ((gid + 1) << 16) | (size & 0xFFFF)
+    mask := f.nslots - 1
+    var h = (key * 2654435761) & mask
+    for f.slots[h].key != 0 {
+        if f.slots[h].key == key { return &f.slots[h] }
+        h = (h + 1) & mask
+    }
+    if f.used * 4 >= f.nslots * 3 {      // кэш полон — начинаем заново
+        for i in 0..f.nslots { f.slots[i].key = 0 }
+        f.used = 0
+        h = (key * 2654435761) & mask
+    }
+    g := &f.slots[h]
+    g.key = key
+    f.used += 1
+    g.adv = advance(f, gid) * size * 64 / f.upem
+    g.w = 0
+    g.h = 0
+    if ol == null { ol = outline_new() }
+    outline(f, gid, ol)
+    if ol.np == 0 { return g }
+    s := @as(f32, size) / @as(f32, f.upem)
+    var mnx = ol.xs[0]
+    var mxx = ol.xs[0]
+    var mny = ol.ys[0]
+    var mxy = ol.ys[0]
+    for i in 1..ol.np {
+        if ol.xs[i] < mnx { mnx = ol.xs[i] }
+        if ol.xs[i] > mxx { mxx = ol.xs[i] }
+        if ol.ys[i] < mny { mny = ol.ys[i] }
+        if ol.ys[i] > mxy { mxy = ol.ys[i] }
+    }
+    x0 := draw.ffloor(mnx * s)
+    x1 := draw.fceil(mxx * s)
+    y0 := draw.ffloor(-mxy * s)
+    y1 := draw.fceil(-mny * s)
+    w := x1 - x0 + 1
+    hh := y1 - y0 + 1
+    if w <= 0 || hh <= 0 || w > 2048 || hh > 2048 { return g }
+    draw.rs_begin(w, hh)
+    fill_outline(ol, s, @as(f32, x0), @as(f32, y0))
+    g.bm = sys.alloc(w * hh)
+    draw.rs_end(g.bm)
+    g.w = w
+    g.h = hh
+    g.ox = x0
+    g.oy = y0
+    return g
+}
+
+// ---- текст
+pub fn ulen(c: u8) -> i64 {
+    if c < 0x80 { return 1 }
+    if c >= 0xF0 { return 4 }
+    if c >= 0xE0 { return 3 }
+    if c >= 0xC0 { return 2 }
+    return 1
+}
+
+// символ UTF-8 с позиции i
+pub fn ucp(s: str, i: i64) -> i64 {
+    c := @as(i64, s[i])
+    l := ulen(s[i])
+    if l == 1 || i + l > @as(i64, s.span) { return c }
+    var cp = c & (0x7F >> l)
+    for k in 1..l { cp = (cp << 6) | (@as(i64, s[i + k]) & 63) }
+    return cp
+}
+
+fn gid_of(f: *Font, cp: i64) -> i64 {
+    var g = index(f, cp)
+    if g == 0 && cp > 32 {
+        if cp == 0xA0 { return index(f, 32) }
+        g = index(f, 0xFFFD)
+        if g == 0 { g = index(f, '?') }
+    }
+    return g
+}
+
+// высота строки и подъём над базовой линией, пиксели
+pub fn line_h(f: *Font, size: i64) -> i64 { return ((f.asc - f.desc + f.gap) * size + f.upem - 1) / f.upem }
+pub fn ascent(f: *Font, size: i64) -> i64 { return (f.asc * size + f.upem / 2) / f.upem }
+
+// ширина строки в пикселях
+pub fn width(f: *Font, size: i64, s: str) -> i64 {
+    var pen = 0
+    var i = 0
+    n := @as(i64, s.span)
+    for i < n {
+        cp := ucp(s, i)
+        i += ulen(s[i])
+        pen += advance(f, gid_of(f, cp)) * size * 64 / f.upem
+    }
+    return (pen + 63) / 64
+}
+
+// сколько байт s помещается в ширину w (по границам символов)
+pub fn fit(f: *Font, size: i64, s: str, w: i64) -> i64 {
+    var pen = 0
+    var i = 0
+    n := @as(i64, s.span)
+    for i < n {
+        cp := ucp(s, i)
+        a := advance(f, gid_of(f, cp)) * size * 64 / f.upem
+        if (pen + a + 63) / 64 > w { return i }
+        pen += a
+        i += ulen(s[i])
+    }
+    return n
+}
+
+// строка s: x — начало, y — верх строки -> ширина
+pub fn text(c: *draw.Canvas, f: *Font, size: i64, x: i64, y: i64, col: u32, a: i64, s: str) -> i64 {
+    base := y + ascent(f, size)
+    var pen = x * 64
+    var i = 0
+    n := @as(i64, s.span)
+    for i < n {
+        cp := ucp(s, i)
+        i += ulen(s[i])
+        g := glyph(f, gid_of(f, cp), size)
+        if g.w > 0 {
+            gx := (pen + 32) / 64 + g.ox
+            draw.mask(c, gx, base + g.oy, g.bm, g.w, g.h, col, a)
+        }
+        pen += g.adv
+    }
+    return (pen - x * 64 + 63) / 64
+}

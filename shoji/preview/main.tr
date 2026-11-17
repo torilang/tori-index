@@ -1,0 +1,151 @@
+// Витрина shoji: все виджеты, темы, свой шрифт (Fira Sans), картинки PNG.
+//   cd preview && tori run main.tr
+use shoji
+
+const ACCENTS = "Тории|Сакура|Море|Мох|Слива"
+
+fn accent(k: i64) -> u32 {
+    switch k {
+        1 => return 0xE0608F
+        2 => return 0x2F8FE0
+        3 => return 0x4FA35B
+        4 => return 0x8E5BD9
+    }
+    return 0xE8452C
+}
+
+fn main() {
+    ui := shoji.open("shoji — витрина", 1100, 720)
+    fira := shoji.load_font("FiraSans-Book.ttf")
+    bold := shoji.load_font("FiraSans-Bold.ttf")
+    if fira == null || bold == null {
+        say("нет FiraSans-*.ttf: запускай из папки preview")
+        return
+    }
+    ui.set_font(fira)
+    ui.set_bold(bold)
+    logo := shoji.load_image("logo.png")
+    photo := shoji.load_image("photo.png")
+    play := shoji.load_image("play.png")
+    heart := shoji.load_image("heart.png")
+    star := shoji.load_image("star.png")
+    gear := shoji.load_image("gear.png")
+    builtin := shoji.default_font()
+
+    var clicks = 0
+    var likes = 0
+    var hints = true
+    var autosave = false
+    var sound = true
+    var quality = 1
+    name := shoji.text_new("")
+    var volume = 70
+    var size = 18
+    var lang = 0
+    var acc = 0
+    var theme = 0
+    var tab = 0
+    var frames = 0
+    var last = ""
+
+    for ui.frame() {
+        frames += 1
+        th := &ui.th
+        // ---- шапка
+        ui.picture(logo, 24, 18, 44, 44, 0)
+        ui.text_at(80, 14, "shoji", bold, 30, th.text)
+        ui.text_at(82, 52, "интерфейсы на Tori · Linux и Windows · векторные шрифты", null, 14, th.dim)
+        ui.area(700, 22, 380)
+        ui.row(2)
+        if ui.tabs(&theme, "Тёмная|Светлая") {
+            if theme == 0 { ui.dark() } else { ui.light() }
+            ui.accent(accent(acc))
+        }
+        if ui.dropdown(&acc, ACCENTS) { ui.accent(accent(acc)) }
+        ui.end()
+
+        // ---- кнопки и флажки
+        ui.panel("Кнопки", 20, 86, 340, 590)
+        ui.row(2)
+        if ui.primary("Нажми меня") {
+            clicks += 1
+            last = "основная кнопка"
+        }
+        if ui.button("Сбросить") {
+            clicks = 0
+            likes = 0
+            last = "сброс"
+        }
+        ui.label(shoji.cat("Нажато: ", shoji.num(clicks)))
+        ui.note("Кнопки-картинки")
+        ui.row(4)
+        if ui.image_button(play, "") { last = "играть" }
+        if ui.image_button(heart, "") {
+            likes += 1
+            last = "лайк"
+        }
+        if ui.image_button(star, "") { last = "звезда" }
+        ui.label(shoji.cat("лайков: ", shoji.num(likes)))
+        if ui.image_button(gear, "Настройки") { last = "настройки" }
+        ui.separator()
+        ui.checkbox("Показывать подсказки", &hints)
+        ui.toggle("Автосохранение", &autosave)
+        ui.toggle("Звук", &sound)
+        ui.separator()
+        ui.note("Качество")
+        ui.radio("Низкое", &quality, 0)
+        ui.radio("Среднее", &quality, 1)
+        ui.radio("Высокое", &quality, 2)
+        ui.end()
+
+        // ---- ввод
+        ui.panel("Ввод", 380, 86, 340, 590)
+        ui.note("Имя")
+        ui.input(name, "Как тебя зовут?")
+        if name.n > 0 { ui.label(shoji.cat(shoji.cat("Привет, ", name.get()), "!")) } else { ui.note("Набери что-нибудь латиницей") }
+        ui.note("Громкость")
+        ui.slider(&volume, 0, 100)
+        ui.note("Размер текста справа")
+        ui.slider(&size, 12, 32)
+        ui.note("Загрузка")
+        ui.progress((ui.time() / 30) % 101, 100)
+        ui.note("Язык")
+        ui.dropdown(&lang, "Русский|English|Українська|Deutsch|Español")
+        ui.note("Последнее действие")
+        if last.span == 0 { ui.label("—") } else { ui.label(last) }
+        if hints { ui.note("Подсказка: кадр рисуется заново") }
+        ui.end()
+
+        // ---- текст и картинки
+        ui.panel("Текст и картинки", 740, 86, 340, 590)
+        ui.tabs(&tab, "Картинка|Шрифты|О пакете")
+        if tab == 0 {
+            ui.image(photo, 190, 18)
+            ui.note("PNG 480×300: масштаб и скругление 18 px")
+            ui.row(3)
+            ui.image(photo, 70, 8)
+            ui.image(photo, 70, 35)
+            ui.image(photo, 70, 0)
+            ui.note("радиусы 8, 35 и 0")
+        } else if tab == 1 {
+            ui.styled("Fira Sans Book", fira, size, th.text)
+            ui.styled("Fira Sans Bold", bold, size, th.text)
+            ui.styled("Встроенный Noto Sans", builtin, size, th.text)
+            ui.styled("Съешь же ещё этих мягких булок", fira, size * 3 / 4, th.dim)
+            ui.styled("The quick brown fox — 0123456789", builtin, size * 3 / 4, th.dim)
+            ui.styled("Аа Жж Яя", bold, size * 2, th.accent)
+        } else {
+            ui.para("shoji — пакет интерфейсов для Tori. Всё рисуется программно в пиксели окна: прямоугольники со скруглениями и мягкими тенями, сглаженные многоугольники, шрифты TrueType и картинки PNG.")
+            ui.space(6)
+            ui.para("Виджеты в стиле immediate mode: каждый кадр окно описывается заново, а кнопка сразу отвечает, нажали ли её. Колбэков нет — они и не нужны.")
+            ui.space(6)
+            ui.note("nest install shoji")
+        }
+        ui.end()
+
+        // ---- строка состояния
+        ui.text_at(24, 690, shoji.cat(shoji.cat("мышь ", shoji.num(ui.mouse_x())), shoji.cat(", ", shoji.num(ui.mouse_y()))), null, 13, th.dim)
+        ui.text_at(180, 690, shoji.cat("кадр ", shoji.num(frames)), null, 13, th.dim)
+        ui.text_at(300, 690, shoji.cat("громкость ", shoji.num(volume)), null, 13, th.dim)
+    }
+}

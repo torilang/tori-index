@@ -1,0 +1,136 @@
+// sys — память и файлы для shoji (Linux: @sys, Windows: KERNEL32)
+var heap: *u8
+var heap_left: i64
+
+pub fn mem(n: i64) -> *u8 {              // n нулевых байт прямо у системы
+    var p = 0
+    if @os("win") {
+        p = @win("VirtualAlloc", 0, n, 0x3000, 4)
+        if p == 0 { p = -1 }
+    } else {
+        p = @sys(9, 0, n, 3, 0x22, -1, 0)
+    }
+    if p < 0 && p > -4096 {
+        say("shoji: нет памяти")
+        quit(1)
+    }
+    return @as(*u8, p)
+}
+
+// n нулевых байт из кучи (не освобождается)
+pub fn alloc(n: i64) -> *u8 {
+    k := (n + 15) & ~15
+    if k > 0x400000 { return mem(k) }
+    if k > heap_left {
+        heap = mem(0x2000000)
+        heap_left = 0x2000000
+    }
+    p := heap
+    heap = heap + k
+    heap_left -= k
+    return p
+}
+
+pub fn quit(code: i64) {
+    if @os("win") {
+        @win("ExitProcess", code)
+    } else {
+        @sys(60, code)
+    }
+}
+
+fn cz(s: str) -> *u8 {
+    n := @as(i64, s.span)
+    p := alloc(n + 1)
+    for i in 0..n { p[i] = s[i] }
+    return p
+}
+
+fn wz(s: str) -> *u16 {                  // UTF-8 -> UTF-16 с нулём
+    n := @as(i64, s.span)
+    w := @as(*u16, alloc(n * 2 + 4))
+    if @os("win") {
+        if n > 0 {
+            k := @as(i64, @as(u32, @win("MultiByteToWideChar", 65001, 0, s.ptr, n, w, n + 1)))
+            w[k] = 0
+        }
+    }
+    return w
+}
+
+// весь файл | "" (нет файла или пустой)
+pub fn read_file(path: str) -> str {
+    var fd = 0
+    if @os("win") {
+        fd = @win("CreateFileW", wz(path), 0x80000000, 1, 0, 3, 0x80, 0)
+    } else {
+        fd = @sys(2, cz(path), 0, 0)
+    }
+    if fd < 0 { return "" }
+    var cap = 0x100000
+    var buf = alloc(cap)
+    var n = 0
+    for {
+        if n == cap {
+            nb := alloc(cap * 2)
+            for i in 0..n { nb[i] = buf[i] }
+            buf = nb
+            cap = cap * 2
+        }
+        var r = 0
+        if @os("win") {
+            var got: u32 = 0
+            if @as(u32, @win("ReadFile", fd, buf + n, cap - n, &got, 0)) != 0 { r = @as(i64, got) }
+        } else {
+            r = @sys(0, fd, buf + n, cap - n)
+        }
+        if r <= 0 { break }
+        n += r
+    }
+    if @os("win") {
+        @win("CloseHandle", fd)
+    } else {
+        @sys(3, fd)
+    }
+    return buf[0..n]
+}
+
+pub fn write_file(path: str, data: str) -> bool {
+    var fd = 0
+    if @os("win") {
+        fd = @win("CreateFileW", wz(path), 0x40000000, 0, 0, 2, 0x80, 0)
+    } else {
+        fd = @sys(2, cz(path), 0x241, 420)
+    }
+    if fd < 0 { return false }
+    var at = 0
+    n := @as(i64, data.span)
+    for at < n {
+        var r = 0
+        if @os("win") {
+            var done: u32 = 0
+            if @as(u32, @win("WriteFile", fd, data.ptr + at, n - at, &done, 0)) != 0 { r = @as(i64, done) }
+        } else {
+            r = @sys(1, fd, data.ptr + at, n - at)
+        }
+        if r <= 0 { break }
+        at += r
+    }
+    if @os("win") {
+        @win("CloseHandle", fd)
+    } else {
+        @sys(3, fd)
+    }
+    return at == n
+}
+
+// миллисекунды монотонных часов
+pub fn ms() -> i64 {
+    if @os("win") {
+        return @as(i64, @as(u32, @win("GetTickCount")))
+    } else {
+        var ts: [2]i64
+        @sys(228, 1, &ts[0])
+        return ts[0] * 1000 + ts[1] / 1000000
+    }
+}
