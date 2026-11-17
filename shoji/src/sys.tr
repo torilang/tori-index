@@ -95,6 +95,35 @@ pub fn read_file(path: str) -> str {
     return buf[0..n]
 }
 
+// файл целиком, отображённый в память (для больших шрифтов: читаются только нужные страницы) | ""
+pub fn map_file(path: str) -> str {
+    var p = 0
+    var n = 0
+    if @os("win") {
+        h := @win("CreateFileW", wz(path), 0x80000000, 1, 0, 3, 0x80, 0)
+        if h == -1 { return "" }
+        var sz: i64 = 0
+        if @as(u32, @win("GetFileSizeEx", h, &sz)) != 0 && sz > 0 {
+            m := @win("CreateFileMappingW", h, 0, 2, 0, 0, 0)
+            if m != 0 {
+                p = @win("MapViewOfFile", m, 4, 0, 0, 0)
+                @win("CloseHandle", m)
+                n = sz
+            }
+        }
+        @win("CloseHandle", h)
+    } else {
+        fd := @sys(2, cz(path), 0, 0)
+        if fd < 0 { return "" }
+        n = @sys(8, fd, 0, 2)
+        if n > 0 { p = @sys(9, 0, n, 1, 2, fd, 0) }
+        @sys(3, fd)
+        if p < 0 && p > -4096 { p = 0 }
+    }
+    if p == 0 || n <= 0 { return "" }
+    return @as(*u8, p)[0..n]
+}
+
 pub fn write_file(path: str, data: str) -> bool {
     var fd = 0
     if @os("win") {

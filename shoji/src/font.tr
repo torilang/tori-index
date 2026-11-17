@@ -1,5 +1,6 @@
-// font — векторные шрифты: TrueType (.ttf с контурами glyf) и встроенный шрифт shoji.
+// font — векторные шрифты: TrueType и OpenType (.ttf, .otf, .ttc; контуры glyf и CFF) и встроенный шрифт shoji.
 // Глиф растеризуется со сглаживанием один раз на размер и дальше берётся из кэша.
+// Если в шрифте нет символа, он берётся из запасных: своих (add_fallback) и системных (Noto, DejaVu, Segoe UI…).
 use sys
 use draw
 use font_data
@@ -24,6 +25,12 @@ pub struct Font {
     pcp: *i64                            // их символы (по возрастанию),
     padv: *i64                           // ширины
     pofs: *i64                           // и где лежат контуры
+    cff: i64                             // таблица CFF (.otf) | -1
+    cs: i64                              // её INDEX CharStrings,
+    gsub: i64                            // глобальные подпрограммы,
+    lsub: i64                            // локальные | -1
+    fdsel: i64                           // FDSelect (CID-шрифт, например китайский) | -1
+    fdsub: *i64                          // локальные подпрограммы каждого FD
     slots: *Glyph                        // кэш растеризованных глифов
     nslots: i64
     used: i64
@@ -89,14 +96,18 @@ fn new_font() -> *Font {
     return f
 }
 
-// .ttf из байтов -> шрифт | null (не TrueType: например, .otf с CFF)
+// .ttf, .otf или .ttc (первый шрифт коллекции) из байтов -> шрифт | null
 pub fn load_ttf(data: str) -> *Font {
     if data.span < 12 { return null }
     f := new_font()
     f.d = data.ptr
     f.n = @as(i64, data.span)
-    ver := b32(f, 0)
-    if ver != 0x10000 && ver != 0x74727565 { return null }
+    var dir = 0
+    if b32(f, 0) == 0x74746366 { dir = b32(f, 12) }       // 'ttcf'
+    ver := b32(f, dir)
+    if ver != 0x10000 && ver != 0x74727565 && ver != 0x4F54544F { return null }
+    f.cff = -1
+    var cffo = -1
     var head = -1
     var maxp = -1
     var hhea = -1
@@ -105,8 +116,8 @@ pub fn load_ttf(data: str) -> *Font {
     f.cmap = -1
     f.hmtx = -1
     var cmap = -1
-    for i in 0..b16(f, 4) {
-        r := 12 + i * 16
+    for i in 0..b16(f, dir + 4) {
+        r := dir + 12 + i * 16
         tag := b32(f, r)
         off := b32(f, r + 8)
         switch tag {
@@ -117,9 +128,13 @@ pub fn load_ttf(data: str) -> *Font {
             0x6C6F6361 => f.loca = off
             0x676C7966 => f.glyf = off
             0x636D6170 => cmap = off
+            0x43464620 => cffo = off
         }
     }
-    if head < 0 || maxp < 0 || hhea < 0 || f.glyf < 0 || f.loca < 0 || cmap < 0 || f.hmtx < 0 { return null }
+    if head < 0 || maxp < 0 || hhea < 0 || cmap < 0 || f.hmtx < 0 { return null }
+    if f.glyf < 0 || f.loca < 0 {
+        if cffo < 0 || !cff_init(f, cffo) { return null }
+    }
     f.upem = b16(f, head + 18)
     f.locfmt = s16(f, head + 50)
     f.nglyphs = b16(f, maxp + 4)
@@ -217,8 +232,495 @@ pub fn outline(f: *Font, gid: i64, o: *Outline) {
     o.nc = 0
     if f.packed {
         unpack_glyph(f, gid, o)
+    } else if f.cff >= 0 {
+        cff_load(f, gid, o)
     } else {
         glyf_load(f, gid, o, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0)
+    }
+}
+
+// ---- CFF (.otf): контуры — программы Type 2 с кубическими кривыми
+fn cu(f: *Font, o: i64, n: i64) -> i64 {      // n байт big-endian
+    var v = 0
+    for i in 0..n { v = (v << 8) | b8(f, o + i) }
+    return v
+}
+
+// элемент i структуры INDEX с начала p -> [*a, *b)
+fn idx_get(f: *Font, p: i64, i: i64, a: *i64, b: *i64) -> bool {
+    n := b16(f, p)
+    if i < 0 || i >= n { return false }
+    os := b8(f, p + 2)
+    data := p + 3 + (n + 1) * os - 1
+    *a = data + cu(f, p + 3 + i * os, os)
+    *b = data + cu(f, p + 3 + (i + 1) * os, os)
+    return true
+}
+
+fn idx_end(f: *Font, p: i64) -> i64 {
+    n := b16(f, p)
+    if n == 0 { return p + 2 }
+    os := b8(f, p + 2)
+    return p + 3 + (n + 1) * os - 1 + cu(f, p + 3 + n * os, os)
+}
+
+// DICT [a, b): операнды оператора op (12 x — это 1200 + x) -> v[0], v[1]
+fn dict(f: *Font, a: i64, b: i64, op: i64, v: *i64) -> bool {
+    var st: [8]i64
+    var n = 0
+    var p = a
+    for p < b {
+        c := b8(f, p)
+        var num = 0
+        var has = true
+        if c <= 21 {
+            var o = c
+            p += 1
+            if c == 12 {
+                o = 1200 + b8(f, p)
+                p += 1
+            }
+            if o == op {
+                v[0] = st[0]
+                v[1] = st[1]
+                return n > 0
+            }
+            n = 0
+            has = false
+        } else if c == 28 {
+            num = s16(f, p + 1)
+            p += 3
+        } else if c == 29 {
+            num = b32(f, p + 1)
+            if num >= 0x80000000 { num -= 0x100000000 }
+            p += 5
+        } else if c == 30 {                      // дробное: пропускаем
+            p += 1
+            for p < b {
+                d := b8(f, p)
+                p += 1
+                if (d >> 4) == 15 || (d & 15) == 15 { break }
+            }
+        } else if c >= 32 && c <= 246 {
+            num = c - 139
+            p += 1
+        } else if c >= 247 && c <= 250 {
+            num = (c - 247) * 256 + b8(f, p + 1) + 108
+            p += 2
+        } else if c >= 251 && c <= 254 {
+            num = -(c - 251) * 256 - b8(f, p + 1) - 108
+            p += 2
+        } else {
+            p += 1
+            has = false
+        }
+        if has && n < 8 {
+            st[n] = num
+            n += 1
+        }
+    }
+    return false
+}
+
+fn priv_subrs(f: *Font, off: i64, size: i64, po: i64) -> i64 {
+    var v: [2]i64
+    pa := off + po
+    if dict(f, pa, pa + size, 19, &v[0]) { return pa + v[0] }
+    return -1
+}
+
+fn cff_init(f: *Font, off: i64) -> bool {
+    f.cff = off
+    top := idx_end(f, off + b8(f, off + 2))       // за INDEX имён
+    strs := idx_end(f, top)
+    f.gsub = idx_end(f, strs)
+    f.lsub = -1
+    f.fdsel = -1
+    var a = 0
+    var b = 0
+    var v: [2]i64
+    if !idx_get(f, top, 0, &a, &b) || !dict(f, a, b, 17, &v[0]) {
+        f.cff = -1
+        return false
+    }
+    f.cs = off + v[0]
+    if dict(f, a, b, 1237, &v[0]) {              // FDSelect: шрифт из нескольких FD
+        f.fdsel = off + v[0]
+        if !dict(f, a, b, 1236, &v[0]) {
+            f.cff = -1
+            return false
+        }
+        fda := off + v[0]
+        nfd := b16(f, fda)
+        f.fdsub = @as(*i64, sys.alloc(nfd * 8 + 8))
+        for i in 0..nfd {
+            f.fdsub[i] = -1
+            var fa = 0
+            var fb = 0
+            if idx_get(f, fda, i, &fa, &fb) && dict(f, fa, fb, 18, &v[0]) { f.fdsub[i] = priv_subrs(f, off, v[0], v[1]) }
+        }
+    } else if dict(f, a, b, 18, &v[0]) {
+        f.lsub = priv_subrs(f, off, v[0], v[1])
+    }
+    return true
+}
+
+fn fd_of(f: *Font, gid: i64) -> i64 {
+    s := f.fdsel
+    fmt := b8(f, s)
+    if fmt == 0 { return b8(f, s + 1 + gid) }
+    if fmt == 3 {
+        var lo = 0
+        var hi = b16(f, s + 1)
+        for lo < hi {                            // последний диапазон с first <= gid
+            mid := (lo + hi) / 2
+            if b16(f, s + 3 + mid * 3) <= gid { lo = mid + 1 } else { hi = mid }
+        }
+        if lo > 0 { return b8(f, s + 3 + (lo - 1) * 3 + 2) }
+    }
+    return 0
+}
+
+struct Cs {
+    st: [48]f32
+    n: i64
+    x: f32
+    y: f32
+    stems: i64
+    width: bool                          // ширина глифа уже снята со стека
+    open: bool
+    end: bool
+    lsub: i64
+    o: *Outline
+}
+
+fn bias(n: i64) -> i64 {
+    if n < 1240 { return 107 }
+    if n < 33900 { return 1131 }
+    return 32768
+}
+
+// точка контура: 1 — на кривой, 3 — управляющая кубической
+fn cs_pt(c: *Cs, tag: i64) {
+    o := c.o
+    if o.np >= MAXPT { return }
+    o.xs[o.np] = c.x
+    o.ys[o.np] = c.y
+    o.on[o.np] = @as(u8, tag)
+    o.np += 1
+}
+
+fn cs_close(c: *Cs) {
+    if c.open && c.o.nc < MAXCT {
+        c.o.ends[c.o.nc] = c.o.np - 1
+        c.o.nc += 1
+    }
+    c.open = false
+}
+
+fn cs_move(c: *Cs, dx: f32, dy: f32) {
+    cs_close(c)
+    c.x += dx
+    c.y += dy
+    cs_pt(c, 1)
+    c.open = true
+}
+
+fn cs_start(c: *Cs) {
+    if !c.open {
+        cs_pt(c, 1)
+        c.open = true
+    }
+}
+
+fn cs_line(c: *Cs, dx: f32, dy: f32) {
+    cs_start(c)
+    c.x += dx
+    c.y += dy
+    cs_pt(c, 1)
+}
+
+fn cs_curve(c: *Cs, a: f32, b: f32, d: f32, e: f32, g: f32, h: f32) {
+    cs_start(c)
+    c.x += a
+    c.y += b
+    cs_pt(c, 3)
+    c.x += d
+    c.y += e
+    cs_pt(c, 3)
+    c.x += g
+    c.y += h
+    cs_pt(c, 1)
+}
+
+// оператор, очищающий стек: первым числом может лежать ширина глифа -> с какого числа аргументы
+fn cs_base(c: *Cs, odd: bool) -> i64 {
+    if c.width { return 0 }
+    c.width = true
+    if (c.n % 2 == 1) == odd && c.n > 0 { return 1 }
+    return 0
+}
+
+fn fabs(v: f32) -> f32 {
+    if v < 0.0 { return -v }
+    return v
+}
+
+fn cs_run(c: *Cs, f: *Font, a: i64, b: i64, depth: i64) {
+    if depth > 10 {
+        c.end = true
+        return
+    }
+    var p = a
+    for p < b && !c.end {
+        v := b8(f, p)
+        if v >= 32 || v == 28 {                  // число
+            var num: f32 = 0.0
+            if v == 28 {
+                num = @as(f32, s16(f, p + 1))
+                p += 3
+            } else if v <= 246 {
+                num = @as(f32, v - 139)
+                p += 1
+            } else if v <= 250 {
+                num = @as(f32, (v - 247) * 256 + b8(f, p + 1) + 108)
+                p += 2
+            } else if v <= 254 {
+                num = @as(f32, -(v - 251) * 256 - b8(f, p + 1) - 108)
+                p += 2
+            } else {
+                var w = b32(f, p + 1)
+                if w >= 0x80000000 { w -= 0x100000000 }
+                num = @as(f32, w) / 65536.0
+                p += 5
+            }
+            if c.n < 48 {
+                c.st[c.n] = num
+                c.n += 1
+            }
+            continue
+        }
+        p += 1
+        n := c.n
+        switch v {
+            1, 3, 18, 23 => {                    // стебли подсказок
+                k := cs_base(c, true)
+                c.stems += (n - k) / 2
+            }
+            19, 20 => {                          // hintmask, cntrmask
+                k := cs_base(c, true)
+                c.stems += (n - k) / 2
+                p += (c.stems + 7) / 8
+            }
+            21 => {
+                k := cs_base(c, true)
+                if n - k >= 2 { cs_move(c, c.st[k], c.st[k + 1]) }
+            }
+            22 => {
+                k := cs_base(c, false)
+                if n - k >= 1 { cs_move(c, c.st[k], 0.0) }
+            }
+            4 => {
+                k := cs_base(c, false)
+                if n - k >= 1 { cs_move(c, 0.0, c.st[k]) }
+            }
+            5 => {
+                var i = 0
+                for i + 1 < n {
+                    cs_line(c, c.st[i], c.st[i + 1])
+                    i += 2
+                }
+            }
+            6, 7 => {
+                var h = v == 6
+                for i in 0..n {
+                    if h { cs_line(c, c.st[i], 0.0) } else { cs_line(c, 0.0, c.st[i]) }
+                    h = !h
+                }
+            }
+            8, 24 => {                           // rrcurveto; rcurveline — и линия в конце
+                var i = 0
+                for i + 5 < n {
+                    cs_curve(c, c.st[i], c.st[i + 1], c.st[i + 2], c.st[i + 3], c.st[i + 4], c.st[i + 5])
+                    i += 6
+                }
+                if v == 24 && i + 1 < n { cs_line(c, c.st[i], c.st[i + 1]) }
+            }
+            25 => {                              // rlinecurve
+                var i = 0
+                for i + 1 < n - 6 {
+                    cs_line(c, c.st[i], c.st[i + 1])
+                    i += 2
+                }
+                if i + 5 < n { cs_curve(c, c.st[i], c.st[i + 1], c.st[i + 2], c.st[i + 3], c.st[i + 4], c.st[i + 5]) }
+            }
+            26 => {                              // vvcurveto
+                var i = 0
+                var dx: f32 = 0.0
+                if n % 2 == 1 {
+                    dx = c.st[0]
+                    i = 1
+                }
+                for i + 3 < n {
+                    cs_curve(c, dx, c.st[i], c.st[i + 1], c.st[i + 2], 0.0, c.st[i + 3])
+                    dx = 0.0
+                    i += 4
+                }
+            }
+            27 => {                              // hhcurveto
+                var i = 0
+                var dy: f32 = 0.0
+                if n % 2 == 1 {
+                    dy = c.st[0]
+                    i = 1
+                }
+                for i + 3 < n {
+                    cs_curve(c, c.st[i], dy, c.st[i + 1], c.st[i + 2], c.st[i + 3], 0.0)
+                    dy = 0.0
+                    i += 4
+                }
+            }
+            30, 31 => {                          // vhcurveto, hvcurveto
+                var h = v == 31
+                var i = 0
+                for i + 3 < n {
+                    var last: f32 = 0.0
+                    if n - i == 5 { last = c.st[i + 4] }
+                    if h {
+                        cs_curve(c, c.st[i], 0.0, c.st[i + 1], c.st[i + 2], last, c.st[i + 3])
+                    } else {
+                        cs_curve(c, 0.0, c.st[i], c.st[i + 1], c.st[i + 2], c.st[i + 3], last)
+                    }
+                    h = !h
+                    i += 4
+                }
+            }
+            10, 29 => {                          // callsubr, callgsubr
+                if n > 0 {
+                    c.n = n - 1
+                    var sub = f.gsub
+                    if v == 10 { sub = c.lsub }
+                    if sub >= 0 {
+                        ix := @as(i64, c.st[n - 1]) + bias(b16(f, sub))
+                        var sa = 0
+                        var sb = 0
+                        if idx_get(f, sub, ix, &sa, &sb) { cs_run(c, f, sa, sb, depth + 1) }
+                    }
+                }
+                continue                         // аргументы остаются на стеке
+            }
+            11 => return
+            14 => {
+                cs_base(c, true)
+                cs_close(c)
+                c.end = true
+            }
+            12 => {
+                e := b8(f, p)
+                p += 1
+                s := &c.st[0]
+                switch e {
+                    34 => if n >= 7 {            // hflex
+                        cs_curve(c, s[0], 0.0, s[1], s[2], s[3], 0.0)
+                        cs_curve(c, s[4], 0.0, s[5], -s[2], s[6], 0.0)
+                    }
+                    35 => if n >= 12 {           // flex
+                        cs_curve(c, s[0], s[1], s[2], s[3], s[4], s[5])
+                        cs_curve(c, s[6], s[7], s[8], s[9], s[10], s[11])
+                    }
+                    36 => if n >= 9 {            // hflex1
+                        cs_curve(c, s[0], s[1], s[2], s[3], s[4], 0.0)
+                        cs_curve(c, s[5], 0.0, s[6], s[7], s[8], -(s[1] + s[3] + s[7]))
+                    }
+                    37 => if n >= 11 {           // flex1
+                        dx := s[0] + s[2] + s[4] + s[6] + s[8]
+                        dy := s[1] + s[3] + s[5] + s[7] + s[9]
+                        cs_curve(c, s[0], s[1], s[2], s[3], s[4], s[5])
+                        if fabs(dx) > fabs(dy) {
+                            cs_curve(c, s[6], s[7], s[8], s[9], s[10], -dy)
+                        } else {
+                            cs_curve(c, s[6], s[7], s[8], s[9], -dx, s[10])
+                        }
+                    }
+                }
+            }
+        }
+        c.n = 0
+    }
+}
+
+fn cff_load(f: *Font, gid: i64, o: *Outline) {
+    var a = 0
+    var b = 0
+    if !idx_get(f, f.cs, gid, &a, &b) { return }
+    var c: Cs
+    c.n = 0
+    c.x = 0.0
+    c.y = 0.0
+    c.stems = 0
+    c.width = false
+    c.open = false
+    c.end = false
+    c.o = o
+    c.lsub = f.lsub
+    if f.fdsel >= 0 { c.lsub = f.fdsub[fd_of(f, gid)] }
+    cs_run(&c, f, a, b, 0)
+    cs_close(&c)
+}
+
+// кубическая кривая -> отрезки
+fn cubic(x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
+    l := fabs(x1 - x0) + fabs(y1 - y0) + fabs(x2 - x1) + fabs(y2 - y1) + fabs(x3 - x2) + fabs(y3 - y2)
+    var n = @as(i64, l / 3.0) + 1
+    if n > 24 { n = 24 }
+    var px = x0
+    var py = y0
+    for i in 1..n + 1 {
+        t := @as(f32, i) / @as(f32, n)
+        u := 1.0 - t
+        a := u * u * u
+        b := 3.0 * u * u * t
+        cc := 3.0 * u * t * t
+        d := t * t * t
+        x := a * x0 + b * x1 + cc * x2 + d * x3
+        y := a * y0 + b * y1 + cc * y2 + d * y3
+        draw.rs_line(px, py, x, y)
+        px = x
+        py = y
+    }
+}
+
+// контуры CFF в маску: как fill_outline, но кривые кубические
+fn fill_cff(o: *Outline, s: f32, bx: f32, by: f32) {
+    var st = 0
+    for k in 0..o.nc {
+        e := o.ends[k]
+        if e > st {
+            sx := o.xs[st] * s - bx
+            sy := -o.ys[st] * s - by
+            var cx = sx
+            var cy = sy
+            var i = st + 1
+            for i <= e {
+                px := o.xs[i] * s - bx
+                py := -o.ys[i] * s - by
+                if o.on[i] == 3 && i + 2 <= e {
+                    ex := o.xs[i + 2] * s - bx
+                    ey := -o.ys[i + 2] * s - by
+                    cubic(cx, cy, px, py, o.xs[i + 1] * s - bx, -o.ys[i + 1] * s - by, ex, ey)
+                    cx = ex
+                    cy = ey
+                    i += 3
+                } else {
+                    draw.rs_line(cx, cy, px, py)
+                    cx = px
+                    cy = py
+                    i += 1
+                }
+            }
+            if cx != sx || cy != sy { draw.rs_line(cx, cy, sx, sy) }
+        }
+        st = e + 1
     }
 }
 
@@ -553,7 +1055,11 @@ pub fn glyph(f: *Font, gid: i64, size: i64) -> *Glyph {
     hh := y1 - y0 + 1
     if w <= 0 || hh <= 0 || w > 2048 || hh > 2048 { return g }
     draw.rs_begin(w, hh)
-    fill_outline(ol, s, @as(f32, x0), @as(f32, y0))
+    if f.cff >= 0 {
+        fill_cff(ol, s, @as(f32, x0), @as(f32, y0))
+    } else {
+        fill_outline(ol, s, @as(f32, x0), @as(f32, y0))
+    }
     g.bm = sys.alloc(w * hh)
     draw.rs_end(g.bm)
     g.w = w
@@ -582,6 +1088,146 @@ pub fn ucp(s: str, i: i64) -> i64 {
     return cp
 }
 
+// ---- запасные шрифты
+var fbs: [32]*Font
+var nfb: i64
+pub var no_system: bool                  // true — не искать недостающие символы в шрифтах системы
+var tried: [10]i64                       // сколько системных шрифтов письменности уже открыто
+
+// шрифт f — запасной: из него берутся символы, которых нет в основном
+pub fn add_fallback(f: *Font) {
+    if f != null && nfb < 32 {
+        fbs[nfb] = f
+        nfb += 1
+    }
+}
+
+// шрифт и глиф для символа cp: свой шрифт, иначе запасные, иначе знак замены
+fn pick(f: *Font, cp: i64, gid: *i64) -> *Font {
+    var g = index(f, cp)
+    if g != 0 || cp <= 32 || cp == 0xA0 {
+        if g == 0 && cp == 0xA0 { g = index(f, 32) }
+        *gid = g
+        return f
+    }
+    for i in 0..nfb {
+        g2 := index(fbs[i], cp)
+        if g2 != 0 {
+            *gid = g2
+            return fbs[i]
+        }
+    }
+    if !no_system {
+        sf := sys_font(cp, gid)
+        if sf != null { return sf }
+    }
+    *gid = gid_of(f, cp)
+    return f
+}
+
+fn script(cp: i64) -> i64 {              // группа письменностей для поиска шрифта
+    if (cp >= 0x600 && cp <= 0x6FF) || (cp >= 0x750 && cp <= 0x77F) || (cp >= 0x8A0 && cp <= 0x8FF) || (cp >= 0xFB50 && cp <= 0xFDFF) || (cp >= 0xFE70 && cp <= 0xFEFF) { return 1 }
+    if (cp >= 0x590 && cp <= 0x5FF) || (cp >= 0xFB1D && cp <= 0xFB4F) { return 2 }
+    if cp >= 0x900 && cp <= 0x97F { return 3 }
+    if cp >= 0x980 && cp <= 0x9FF { return 4 }
+    if cp >= 0xB80 && cp <= 0xBFF { return 5 }
+    if cp >= 0xE00 && cp <= 0xE7F { return 6 }
+    if cp >= 0x530 && cp <= 0x58F { return 7 }
+    if cp >= 0x10A0 && cp <= 0x10FF { return 8 }
+    if (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xAC00 && cp <= 0xD7FF) { return 9 }
+    if (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x20000 && cp <= 0x3FFFF) { return 9 }
+    return 0
+}
+
+fn cands(grp: i64) -> str {              // файлы шрифтов для группы, через '|'
+    if @os("win") {
+        switch grp {
+            1, 2 => return "segoeui.ttf|arial.ttf|tahoma.ttf"
+            3, 4, 5 => return "Nirmala.ttf|Nirmala.ttc|mangal.ttf|vrinda.ttf|latha.ttf"
+            6 => return "LeelawUI.ttf|leelawad.ttf|tahoma.ttf"
+            7, 8 => return "segoeui.ttf|sylfaen.ttf"
+            9 => return "msyh.ttc|YuGothR.ttc|malgun.ttf|simsun.ttc|msgothic.ttc|meiryo.ttc"
+        }
+        return "segoeui.ttf|arial.ttf|seguisym.ttf|tahoma.ttf"
+    } else {
+        switch grp {
+            1 => return "NotoSansArabic-Regular.ttf|NotoNaskhArabic-Regular.ttf|NotoSansArabicUI-Regular.ttf|DejaVuSans.ttf"
+            2 => return "NotoSansHebrew-Regular.ttf|DejaVuSans.ttf"
+            3 => return "NotoSansDevanagari-Regular.ttf|NotoSansDevanagariUI-Regular.ttf"
+            4 => return "NotoSansBengali-Regular.ttf|NotoSansBengaliUI-Regular.ttf"
+            5 => return "NotoSansTamil-Regular.ttf|NotoSansTamilUI-Regular.ttf"
+            6 => return "NotoSansThai-Regular.ttf|NotoSansThaiUI-Regular.ttf"
+            7 => return "NotoSansArmenian-Regular.ttf|DejaVuSans.ttf"
+            8 => return "NotoSansGeorgian-Regular.ttf|DejaVuSans.ttf"
+            9 => return "NotoSansCJK-Regular.ttc|NotoSansCJKsc-Regular.otf|NotoSansCJKjp-Regular.otf|wqy-microhei.ttc|wqy-zenhei.ttc|DroidSansFallbackFull.ttf|DroidSansFallback.ttf"
+        }
+        return "NotoSans-Regular.ttf|DejaVuSans.ttf|NotoSansSymbols-Regular.ttf|NotoSansSymbols2-Regular.ttf|NotoSansMath-Regular.ttf"
+    }
+    return ""
+}
+
+const DIRS = "/usr/share/fonts/noto/|/usr/share/fonts/truetype/noto/|/usr/share/fonts/google-noto/|/usr/share/fonts/noto-cjk/|/usr/share/fonts/opentype/noto/|/usr/share/fonts/google-noto-cjk/|/usr/share/fonts/google-noto-sans-cjk-fonts/|/usr/share/fonts/TTF/|/usr/share/fonts/truetype/dejavu/|/usr/share/fonts/dejavu/|/usr/share/fonts/dejavu-sans-fonts/|/usr/share/fonts/wenquanyi/wqy-microhei/|/usr/share/fonts/truetype/wqy/|/usr/share/fonts/truetype/droid/|/usr/local/share/fonts/"
+
+fn part(s: str, k: i64) -> str {         // k-й кусок s между '|'
+    var i = 0
+    var st = 0
+    n := @as(i64, s.span)
+    for j in 0..n + 1 {
+        if j == n || s[j] == '|' {
+            if i == k { return s[st..j] }
+            i += 1
+            st = j + 1
+        }
+    }
+    return ""
+}
+
+fn join(a: str, b: str) -> str {
+    na := @as(i64, a.span)
+    nb := @as(i64, b.span)
+    p := sys.alloc(na + nb + 1)
+    for i in 0..na { p[i] = a[i] }
+    for i in 0..nb { p[na + i] = b[i] }
+    return p[0..na + nb]
+}
+
+fn open_sys(name: str) -> *Font {
+    if @os("win") {
+        return load_ttf(sys.map_file(join("C:\\Windows\\Fonts\\", name)))
+    } else {
+        var k = 0
+        for {
+            d := part(DIRS, k)
+            if d.span == 0 { break }
+            data := sys.map_file(join(d, name))
+            if data.span != 0 { return load_ttf(data) }
+            k += 1
+        }
+    }
+    return null
+}
+
+// найти символ cp в шрифтах системы (каждый файл открывается не больше одного раза)
+fn sys_font(cp: i64, gid: *i64) -> *Font {
+    grp := script(cp)
+    list := cands(grp)
+    for {
+        name := part(list, tried[grp])
+        if name.span == 0 { break }
+        tried[grp] += 1
+        f := open_sys(name)
+        if f != null {
+            add_fallback(f)
+            g := index(f, cp)
+            if g != 0 {
+                *gid = g
+                return f
+            }
+        }
+    }
+    return null
+}
+
 fn gid_of(f: *Font, cp: i64) -> i64 {
     var g = index(f, cp)
     if g == 0 && cp > 32 {
@@ -604,7 +1250,9 @@ pub fn width(f: *Font, size: i64, s: str) -> i64 {
     for i < n {
         cp := ucp(s, i)
         i += ulen(s[i])
-        pen += advance(f, gid_of(f, cp)) * size * 64 / f.upem
+        var g = 0
+        ff := pick(f, cp, &g)
+        pen += advance(ff, g) * size * 64 / ff.upem
     }
     return (pen + 63) / 64
 }
@@ -616,7 +1264,9 @@ pub fn fit(f: *Font, size: i64, s: str, w: i64) -> i64 {
     n := @as(i64, s.span)
     for i < n {
         cp := ucp(s, i)
-        a := advance(f, gid_of(f, cp)) * size * 64 / f.upem
+        var g = 0
+        ff := pick(f, cp, &g)
+        a := advance(ff, g) * size * 64 / ff.upem
         if (pen + a + 63) / 64 > w { return i }
         pen += a
         i += ulen(s[i])
@@ -633,7 +1283,9 @@ pub fn text(c: *draw.Canvas, f: *Font, size: i64, x: i64, y: i64, col: u32, a: i
     for i < n {
         cp := ucp(s, i)
         i += ulen(s[i])
-        g := glyph(f, gid_of(f, cp), size)
+        var gi = 0
+        ff := pick(f, cp, &gi)
+        g := glyph(ff, gi, size)
         if g.w > 0 {
             gx := (pen + 32) / 64 + g.ox
             draw.mask(c, gx, base + g.oy, g.bm, g.w, g.h, col, a)

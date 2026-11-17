@@ -1,4 +1,5 @@
-// Витрина shoji: все виджеты, темы, свой шрифт (Fira Sans), картинки PNG.
+// Витрина shoji: все виджеты, темы, свой шрифт (Fira Sans), картинки PNG, масштаб и ввод на любом языке.
+// Окно растягивается: панели встают в три, две или одну колонку, лишнее листается колесом.
 //   cd preview && tori run main.tr
 use shoji
 
@@ -51,11 +52,29 @@ fn main() {
     for ui.frame() {
         frames += 1
         th := &ui.th
+        // ---- раскладка под ширину окна
+        W := ui.width()
+        var cols = 1
+        if W >= 1060 { cols = 3 } else if W >= 700 { cols = 2 }
+        pw := (W - 20 * (cols + 1)) / cols
+        ph := 590
+        var top = 86
+        var hx = W - 400
+        var hy = 22
+        if W < 760 {                     // узко: переключатели темы — под логотипом
+            hx = 20
+            hy = 76
+            top = 132
+        }
+        rows := (3 + cols - 1) / cols
+        page := top + rows * (ph + 20) + 30
+        ui.page_height(page)
+
         // ---- шапка
         ui.picture(logo, 24, 18, 44, 44, 0)
         ui.text_at(80, 14, "shoji", bold, 30, th.text)
-        ui.text_at(82, 52, "интерфейсы на Tori · Linux и Windows · векторные шрифты", null, 14, th.dim)
-        ui.area(700, 22, 380)
+        if W >= 980 { ui.text_at(82, 52, "интерфейсы на Tori · Linux и Windows · векторные шрифты", null, 14, th.dim) }
+        ui.area(hx, hy, draw_min(380, W - 40))
         ui.row(2)
         if ui.tabs(&theme, "Тёмная|Светлая") {
             if theme == 0 { ui.dark() } else { ui.light() }
@@ -65,7 +84,7 @@ fn main() {
         ui.end()
 
         // ---- кнопки и флажки
-        ui.panel("Кнопки", 20, 86, 340, 590)
+        ui.panel("Кнопки", px(0, cols, pw), py(0, cols, top, ph), pw, ph)
         ui.row(2)
         if ui.primary("Нажми меня") {
             clicks += 1
@@ -99,10 +118,15 @@ fn main() {
         ui.end()
 
         // ---- ввод
-        ui.panel("Ввод", 380, 86, 340, 590)
-        ui.note("Имя")
+        ui.panel("Ввод", px(1, cols, pw), py(1, cols, top, ph), pw, ph)
+        ui.note("Имя — на любом языке и в любой раскладке")
         ui.input(name, "Как тебя зовут?")
-        if name.n > 0 { ui.label(shoji.cat(shoji.cat("Привет, ", name.get()), "!")) } else { ui.note("Набери что-нибудь латиницей") }
+        if name.n > 0 { ui.label(shoji.cat(shoji.cat("Привет, ", name.get()), "!")) } else { ui.label("Ελληνικά · ქართული · 日本語 · 한국어") }
+        ui.note(shoji.cat(shoji.cat("Масштаб ", shoji.num(ui.scale())), " % · Ctrl + колесо"))
+        ui.row(3)
+        if ui.button("A−") { ui.set_zoom(ui.zoom - 10) }
+        if ui.button("100 %") { ui.set_zoom(100) }
+        if ui.button("A+") { ui.set_zoom(ui.zoom + 10) }
         ui.note("Громкость")
         ui.slider(&volume, 0, 100)
         ui.note("Размер текста справа")
@@ -110,14 +134,14 @@ fn main() {
         ui.note("Загрузка")
         ui.progress((ui.time() / 30) % 101, 100)
         ui.note("Язык")
-        ui.dropdown(&lang, "Русский|English|Українська|Deutsch|Español")
+        ui.dropdown(&lang, "Русский|English|Українська|Deutsch|日本語|中文")
         ui.note("Последнее действие")
         if last.span == 0 { ui.label("—") } else { ui.label(last) }
         if hints { ui.note("Подсказка: кадр рисуется заново") }
         ui.end()
 
         // ---- текст и картинки
-        ui.panel("Текст и картинки", 740, 86, 340, 590)
+        ui.panel("Текст и картинки", px(2, cols, pw), py(2, cols, top, ph), pw, ph)
         ui.tabs(&tab, "Картинка|Шрифты|О пакете")
         if tab == 0 {
             ui.image(photo, 190, 18)
@@ -134,6 +158,7 @@ fn main() {
             ui.styled("Съешь же ещё этих мягких булок", fira, size * 3 / 4, th.dim)
             ui.styled("The quick brown fox — 0123456789", builtin, size * 3 / 4, th.dim)
             ui.styled("Аа Жж Яя", bold, size * 2, th.accent)
+            ui.styled("漢字 · かな · 한글 — из шрифтов системы", null, size * 3 / 4, th.dim)
         } else {
             ui.para("shoji — пакет интерфейсов для Tori. Всё рисуется программно в пиксели окна: прямоугольники со скруглениями и мягкими тенями, сглаженные многоугольники, шрифты TrueType и картинки PNG.")
             ui.space(6)
@@ -144,8 +169,18 @@ fn main() {
         ui.end()
 
         // ---- строка состояния
-        ui.text_at(24, 690, shoji.cat(shoji.cat("мышь ", shoji.num(ui.mouse_x())), shoji.cat(", ", shoji.num(ui.mouse_y()))), null, 13, th.dim)
-        ui.text_at(180, 690, shoji.cat("кадр ", shoji.num(frames)), null, 13, th.dim)
-        ui.text_at(300, 690, shoji.cat("громкость ", shoji.num(volume)), null, 13, th.dim)
+        sy := page - 26
+        ui.text_at(24, sy, shoji.cat(shoji.cat("мышь ", shoji.num(ui.mouse_x())), shoji.cat(", ", shoji.num(ui.mouse_y()))), null, 13, th.dim)
+        ui.text_at(180, sy, shoji.cat("кадр ", shoji.num(frames)), null, 13, th.dim)
+        ui.text_at(300, sy, shoji.cat(shoji.cat("окно ", shoji.num(W)), shoji.cat("×", shoji.num(ui.height()))), null, 13, th.dim)
     }
+}
+
+// k-я панель: x и y при cols колонках шириной pw
+fn px(k: i64, cols: i64, pw: i64) -> i64 { return 20 + (k % cols) * (pw + 20) }
+fn py(k: i64, cols: i64, top: i64, ph: i64) -> i64 { return top + (k / cols) * (ph + 20) }
+
+fn draw_min(a: i64, b: i64) -> i64 {
+    if a < b { return a }
+    return b
 }

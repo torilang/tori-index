@@ -2,7 +2,10 @@
 // вкладки, текст векторными шрифтами, картинки PNG, скругления и тени. Linux и Windows.
 //
 // Устроен как immediate mode: каждый кадр программа заново «описывает» окно, а виджет сразу
-// отвечает, что с ним сделали. Колбэков нет:
+// отвечает, что с ним сделали. Колбэков нет.
+//
+// Координаты и размеры — в логических пикселях: на экране они умножаются на масштаб
+// (DPI системы × зум пользователя: Ctrl + колесо, Ctrl + = / - / 0). Окно растягивается:
 //
 //     ui := shoji.open("Привет", 640, 480)
 //     var n = 0
@@ -29,8 +32,8 @@ pub struct Theme {
     hover: u32
     press: u32
     field: u32                           // поля ввода, дорожки ползунков
-    radius: i64
-    size: i64                            // размер текста, px
+    radius: i64                          // размеры — в логических пикселях
+    size: i64                            // размер текста
     title: i64                           // размер заголовков
     pad: i64                             // поля внутри панели
     gap: i64                             // между виджетами
@@ -89,10 +92,15 @@ pub struct Ui {
     pop_items: str
     pop_v: *i64
     pop_pick: i64                        // выбран в этом кадре: номер | -1
-    keys: [64]u8                         // набранные в кадре символы
-    nkeys: i64
     started: bool
     t0: i64
+    m: Theme                             // тема в пикселях экрана (th × масштаб)
+    sc: i64                              // масштаб, %: DPI / 96 × zoom
+    zoom: i64                            // зум пользователя, % (100 — как задумано)
+    dpi: i64                             // DPI экрана (96 — 100 %)
+    page: i64                            // высота страницы для прокрутки (логические px) | 0
+    scroll: i64                          // насколько страница прокручена
+    sb_grab: i64                         // тянут полосу прокрутки: смещение мыши в ней | -1
 }
 
 // ---- кольцевой буфер для коротких строк: num, cat
@@ -154,8 +162,14 @@ pub fn Text.set(t: *Text, s: str) {
 pub fn Text.get(t: *Text) -> str { return t.b[0..t.n] }
 
 // ---- шрифты и картинки
-// шрифт .ttf из файла | null
-pub fn load_font(path: str) -> *font.Font { return font.load_ttf(sys.read_file(path)) }
+// шрифт .ttf, .otf или .ttc из файла | null
+pub fn load_font(path: str) -> *font.Font { return font.load_ttf(sys.map_file(path)) }
+
+// запасной шрифт: из него берутся символы, которых нет в основном
+pub fn fallback(f: *font.Font) { font.add_fallback(f) }
+
+// искать недостающие символы в шрифтах системы (по умолчанию — да)
+pub fn system_fonts(on: bool) { font.no_system = !on }
 
 // встроенный шрифт (Noto Sans)
 pub fn default_font() -> *font.Font { return font.builtin() }
@@ -173,7 +187,13 @@ pub fn load_image(path: str) -> *draw.Image {
 pub fn image_error() -> str { return png.err }
 
 // ---- окно
-pub fn open(title: str, w: i64, h: i64) -> *Ui { return attach(window(title, w, h)) }
+// окно w×h логических пикселей (при масштабе 150 % оно в 1,5 раза больше), растягивается
+pub fn open(title: str, w: i64, h: i64) -> *Ui {
+    dpi := window_dpi()
+    win := window(title, w * dpi / 96, h * dpi / 96)
+    win.resize = true
+    return attach(win)
+}
 
 pub fn attach(win: *Window) -> *Ui {
     u := @as(*Ui, sys.alloc(@size(Ui)))
@@ -183,8 +203,53 @@ pub fn attach(win: *Window) -> *Ui {
     u.bold = u.font
     u.dark()
     u.t0 = sys.ms()
+    u.dpi = window_dpi()
+    u.zoom = 100
+    u.sb_grab = -1
+    u.rescale()
     return u
 }
+
+// ---- масштаб: логические пиксели -> пиксели экрана
+fn Ui.rescale(u: *Ui) {
+    if u.zoom < 50 { u.zoom = 50 }
+    if u.zoom > 400 { u.zoom = 400 }
+    u.sc = u.dpi * u.zoom / 96
+    if u.sc < 25 { u.sc = 25 }
+    u.m = u.th
+    u.m.radius = u.dp(u.th.radius)
+    u.m.size = u.dp(u.th.size)
+    u.m.title = u.dp(u.th.title)
+    u.m.pad = u.dp(u.th.pad)
+    u.m.gap = u.dp(u.th.gap)
+    u.m.h = u.dp(u.th.h)
+}
+
+fn Ui.dp(u: *Ui, v: i64) -> i64 {
+    if v < 0 { return -((-v * u.sc + 50) / 100) }
+    return (v * u.sc + 50) / 100
+}
+fn Ui.lg(u: *Ui, v: i64) -> i64 { return v * 100 / u.sc }       // пиксели экрана -> логические
+fn Ui.ox(u: *Ui, x: i64) -> i64 { return u.dp(x) }
+fn Ui.oy(u: *Ui, y: i64) -> i64 { return u.dp(y - u.scroll) }
+fn Ui.box(u: *Ui, x: i64, y: i64, w: i64, h: i64) -> Rect {   // логический прямоугольник -> экранный
+    x0 := u.ox(x)
+    y0 := u.oy(y)
+    return Rect { x: x0, y: y0, w: u.ox(x + w) - x0, h: u.oy(y + h) - y0 }
+}
+fn Ui.fk(u: *Ui) -> f32 { return @as(f32, u.sc) / 100.0 }
+
+pub fn Ui.px(u: *Ui, v: i64) -> i64 { return u.dp(v) }          // для рисования на canvas()
+pub fn Ui.scale(u: *Ui) -> i64 { return u.sc }                    // масштаб, %
+pub fn Ui.set_zoom(u: *Ui, pct: i64) {
+    u.zoom = pct
+    u.rescale()
+}
+pub fn Ui.width(u: *Ui) -> i64 { return u.lg(u.win.w) }           // окно в логических пикселях
+pub fn Ui.height(u: *Ui) -> i64 { return u.lg(u.win.h) }
+
+// страница высотой h: если она выше окна, её листают колесом и полосой справа
+pub fn Ui.page_height(u: *Ui, h: i64) { u.page = h }
 
 pub fn Ui.dark(u: *Ui) {
     u.th = Theme { bg: 0x16171C, panel: 0x1F2128, border: 0x30333C, text: 0xE8E9ED, dim: 0x8B8F9A,
@@ -208,8 +273,8 @@ pub fn Ui.set_bold(u: *Ui, f: *font.Font) {
     if f != null { u.bold = f }
 }
 pub fn Ui.canvas(u: *Ui) -> *draw.Canvas { return u.c }
-pub fn Ui.mouse_x(u: *Ui) -> i64 { return u.mx }
-pub fn Ui.mouse_y(u: *Ui) -> i64 { return u.my }
+pub fn Ui.mouse_x(u: *Ui) -> i64 { return u.lg(u.mx) }
+pub fn Ui.mouse_y(u: *Ui) -> i64 { return u.lg(u.my) + u.scroll }
 pub fn Ui.key(u: *Ui, k: i64) -> bool { return k >= 0 && k < 256 && u.win.hit[k] }
 pub fn Ui.held(u: *Ui, k: i64) -> bool { return k >= 0 && k < 256 && u.win.down[k] }
 pub fn Ui.time(u: *Ui) -> i64 { return sys.ms() - u.t0 }    // мс с открытия окна
@@ -227,6 +292,9 @@ pub fn Ui.frame(u: *Ui) -> bool {
 pub fn Ui.begin(u: *Ui) {
     u.started = true
     w := u.win
+    u.c.px = w.px                        // окно могли растянуть
+    u.c.w = w.w
+    u.c.h = w.h
     u.mx = w.mx
     u.my = w.my
     d := (w.mb & MOUSE_LEFT) != 0
@@ -236,56 +304,79 @@ pub fn Ui.begin(u: *Ui) {
     u.wheel = w.wheel
     u.id = 0
     u.pop_pick = -1
-    u.nkeys = 0
-    shift := w.down[KEY_SHIFT]
-    for k in 32..127 {
-        if w.hit[k] && u.nkeys < 64 {
-            var ch = k
-            if shift { ch = shifted(k) }
-            u.keys[u.nkeys] = @as(u8, ch)
-            u.nkeys += 1
+    if w.down[KEY_CTRL] {                // зум
+        var z = u.zoom
+        if w.hit['='] { z += 10 }
+        if w.hit['-'] { z -= 10 }
+        if w.hit['0'] { z = 100 }
+        z += u.wheel * 10
+        u.wheel = 0
+        if z != u.zoom {
+            u.pop = 0
+            u.zoom = z
         }
     }
+    u.rescale()                          // и тему могли поменять
     u.blocked = u.pop != 0 && inside(u.pop_r, u.mx, u.my)
     if u.pop != 0 && u.pressed && u.blocked {    // выбор в открытом списке
-        u.pop_pick = (u.my - u.pop_r.y - 4) / u.th.h
+        u.pop_pick = (u.my - u.pop_r.y - u.dp(4)) / u.m.h
     }
+    u.scrolling()
     draw.noclip(u.c)
     draw.fill(u.c, 0, 0, u.c.w, u.c.h, u.th.bg)
     u.sp = 0
-    u.lay = Lay { x: u.th.pad, y: u.th.pad, w: u.c.w - 2 * u.th.pad, cols: 1, cx1: u.c.w, cy1: u.c.h }
+    u.lay = Lay { x: u.m.pad, y: u.oy(u.th.pad), w: u.c.w - 2 * u.m.pad, cols: 1, cx1: u.c.w, cy1: u.c.h }
 }
 
-fn shifted(k: i64) -> i64 {                       // US-раскладка с Shift
-    if k >= 'a' && k <= 'z' { return k - 32 }
-    switch k {
-        '1' => return '!'
-        '2' => return '@'
-        '3' => return '#'
-        '4' => return '$'
-        '5' => return '%'
-        '6' => return '^'
-        '7' => return '&'
-        '8' => return '*'
-        '9' => return '('
-        '0' => return ')'
-        '-' => return '_'
-        '=' => return '+'
-        '[' => return '{'
-        ']' => return '}'
-        ';' => return ':'
-        '\'' => return '"'
-        ',' => return '<'
-        '.' => return '>'
-        '/' => return '?'
-        '`' => return '~'
-        '\\' => return '|'
+// прокрутка страницы: колесо, PgUp/PgDn, полоса справа
+fn Ui.max_scroll(u: *Ui) -> i64 { return draw.imax(0, u.page - u.lg(u.win.h)) }
+
+fn Ui.thumb(u: *Ui) -> Rect {
+    h := u.win.h
+    var th = h * u.lg(h) / draw.imax(1, u.page)
+    if th < u.dp(32) { th = u.dp(32) }
+    ms := draw.imax(1, u.max_scroll())
+    return Rect { x: u.win.w - u.dp(12), y: (h - th) * u.scroll / ms, w: u.dp(12), h: th }
+}
+
+fn Ui.scrolling(u: *Ui) {
+    ms := u.max_scroll()
+    old := u.scroll
+    if ms > 0 {
+        if u.wheel != 0 && !u.blocked { u.scroll -= u.wheel * 48 }
+        if u.focus == 0 {
+            if u.win.hit[KEY_PGDN] { u.scroll += u.lg(u.win.h) * 9 / 10 }
+            if u.win.hit[KEY_PGUP] { u.scroll -= u.lg(u.win.h) * 9 / 10 }
+        }
+        on := u.mx >= u.win.w - u.dp(12) && !u.blocked
+        if on && u.pressed {
+            t := u.thumb()
+            if u.my >= t.y && u.my < t.y + t.h { u.sb_grab = u.my - t.y } else { u.sb_grab = t.h / 2 }
+        }
+        if u.sb_grab >= 0 {
+            t := u.thumb()
+            room := draw.imax(1, u.win.h - t.h)
+            u.scroll = (u.my - u.sb_grab) * ms / room
+            if !u.down { u.sb_grab = -1 }
+        }
+        if on || u.sb_grab >= 0 { u.blocked = true }
+    } else {
+        u.sb_grab = -1
     }
-    return k
+    if u.scroll > ms { u.scroll = ms }
+    if u.scroll < 0 { u.scroll = 0 }
+    if u.scroll != old { u.pop = 0 }
 }
 
 // конец кадра: всплывающий список поверх всего
 pub fn Ui.finish(u: *Ui) {
+    if u.max_scroll() > 0 {
+        draw.noclip(u.c)
+        t := u.thumb()
+        var a = 110
+        if u.sb_grab >= 0 || u.mx >= u.win.w - u.dp(12) { a = 200 }
+        draw.rrect(u.c, t.x + u.dp(4), t.y + u.dp(2), u.dp(5), t.h - u.dp(4), u.dp(3), u.th.dim, a)
+    }
     if u.pop != 0 { u.draw_popup() }
     if u.released { u.active = 0 }
     u.started = false
@@ -301,16 +392,22 @@ fn Ui.push(u: *Ui) {
     }
 }
 
-// следующее место под виджет высоты h
+// следующее место под свой виджет высоты h (логические пиксели, как и ответ)
 pub fn Ui.next(u: *Ui, h: i64) -> Rect {
+    r := u.slot(u.dp(h))
+    return Rect { x: u.lg(r.x), y: u.lg(r.y) + u.scroll, w: u.lg(r.w), h: h }
+}
+
+// то же в пикселях экрана
+fn Ui.slot(u: *Ui, h: i64) -> Rect {
     l := &u.lay
     if l.cols > 1 {
-        cw := (l.w - (l.cols - 1) * u.th.gap) / l.cols
-        r := Rect { x: l.x + l.col * (cw + u.th.gap), y: l.y, w: cw, h: h }
+        cw := (l.w - (l.cols - 1) * u.m.gap) / l.cols
+        r := Rect { x: l.x + l.col * (cw + u.m.gap), y: l.y, w: cw, h: h }
         if h > l.rowh { l.rowh = h }
         l.col += 1
         if l.col == l.cols {
-            l.y += l.rowh + u.th.gap
+            l.y += l.rowh + u.m.gap
             l.cols = 1
             l.col = 0
             l.rowh = 0
@@ -318,26 +415,31 @@ pub fn Ui.next(u: *Ui, h: i64) -> Rect {
         return r
     }
     r := Rect { x: l.x, y: l.y, w: l.w, h: h }
-    l.y += h + u.th.gap
+    l.y += h + u.m.gap
     return r
 }
 
 // следующие n виджетов — в ряд, поровну по ширине
 pub fn Ui.row(u: *Ui, n: i64) {
     l := &u.lay
-    if l.cols > 1 && l.col > 0 { l.y += l.rowh + u.th.gap }
+    if l.cols > 1 && l.col > 0 { l.y += l.rowh + u.m.gap }
     l.cols = n
     l.col = 0
     l.rowh = 0
 }
 
-pub fn Ui.space(u: *Ui, h: i64) { u.lay.y += h }
+pub fn Ui.space(u: *Ui, h: i64) { u.lay.y += u.dp(h) }
 
 // панель с заголовком (title может быть ""); внутри — колонка виджетов до end()
-pub fn Ui.panel(u: *Ui, title: str, x: i64, y: i64, w: i64, h: i64) {
-    th := &u.th
-    draw.shadow(u.c, x, y, w, h, th.radius, 10)
-    draw.rrect_box(u.c, x, y, w, h, th.radius + 4, th.panel, th.border, 1)
+pub fn Ui.panel(u: *Ui, title: str, lx: i64, ly: i64, lw: i64, lh: i64) {
+    th := &u.m
+    b := u.box(lx, ly, lw, lh)
+    x := b.x
+    y := b.y
+    w := b.w
+    h := b.h
+    draw.shadow(u.c, x, y, w, h, th.radius, u.dp(10))
+    draw.rrect_box(u.c, x, y, w, h, th.radius + u.dp(4), th.panel, th.border, 1)
     u.push()
     var ty = y + th.pad
     if title.span != 0 {
@@ -351,7 +453,8 @@ pub fn Ui.panel(u: *Ui, title: str, x: i64, y: i64, w: i64, h: i64) {
 // колонка без фона: виджеты с (x, y) шириной w до end()
 pub fn Ui.area(u: *Ui, x: i64, y: i64, w: i64) {
     u.push()
-    u.lay = Lay { x: x, y: y, w: w, cols: 1, cx0: u.c.cx0, cy0: u.c.cy0, cx1: u.c.cx1, cy1: u.c.cy1 }
+    b := u.box(x, y, w, 0)
+    u.lay = Lay { x: b.x, y: b.y, w: b.w, cols: 1, cx0: u.c.cx0, cy0: u.c.cy0, cx1: u.c.cx1, cy1: u.c.cy1 }
 }
 
 pub fn Ui.end(u: *Ui) {
@@ -382,56 +485,57 @@ fn Ui.fill_for(u: *Ui, id: i64, r: Rect, base: u32) -> u32 {
 }
 
 fn Ui.label_at(u: *Ui, r: Rect, s: str, col: u32, center: bool) {
-    lh := font.line_h(u.font, u.th.size)
+    lh := font.line_h(u.font, u.m.size)
     ty := r.y + (r.h - lh) / 2
     var tx = r.x
-    if center { tx = r.x + (r.w - font.width(u.font, u.th.size, s)) / 2 }
-    font.text(u.c, u.font, u.th.size, tx, ty, col, 255, s)
+    if center { tx = r.x + (r.w - font.width(u.font, u.m.size, s)) / 2 }
+    font.text(u.c, u.font, u.m.size, tx, ty, col, 255, s)
 }
 
 // ---- виджеты
 pub fn Ui.label(u: *Ui, s: str) {
-    r := u.next(font.line_h(u.font, u.th.size))
-    font.text(u.c, u.font, u.th.size, r.x, r.y, u.th.text, 255, s)
+    r := u.slot(font.line_h(u.font, u.m.size))
+    font.text(u.c, u.font, u.m.size, r.x, r.y, u.m.text, 255, s)
 }
 
 // приглушённая мелкая подпись
 pub fn Ui.note(u: *Ui, s: str) {
-    sz := u.th.size * 7 / 8
-    r := u.next(font.line_h(u.font, sz))
-    font.text(u.c, u.font, sz, r.x, r.y, u.th.dim, 255, s)
+    sz := u.m.size * 7 / 8
+    r := u.slot(font.line_h(u.font, sz))
+    font.text(u.c, u.font, sz, r.x, r.y, u.m.dim, 255, s)
 }
 
 pub fn Ui.heading(u: *Ui, s: str) {
-    r := u.next(font.line_h(u.bold, u.th.title))
-    font.text(u.c, u.bold, u.th.title, r.x, r.y, u.th.text, 255, s)
+    r := u.slot(font.line_h(u.bold, u.m.title))
+    font.text(u.c, u.bold, u.m.title, r.x, r.y, u.m.text, 255, s)
 }
 
 // текст любого размера и цвета шрифтом f (null — основной)
 pub fn Ui.styled(u: *Ui, s: str, f: *font.Font, size: i64, col: u32) {
     var ff = f
     if ff == null { ff = u.font }
-    r := u.next(font.line_h(ff, size))
-    font.text(u.c, ff, size, r.x, r.y, col, 255, s)
+    sz := u.dp(size)
+    r := u.slot(font.line_h(ff, sz))
+    font.text(u.c, ff, sz, r.x, r.y, col, 255, s)
 }
 
 // абзац с переносом по словам
 pub fn Ui.para(u: *Ui, s: str) {
-    lh := font.line_h(u.font, u.th.size)
+    lh := font.line_h(u.font, u.m.size)
     var w = u.lay.w
-    if u.lay.cols > 1 { w = (u.lay.w - (u.lay.cols - 1) * u.th.gap) / u.lay.cols }
+    if u.lay.cols > 1 { w = (u.lay.w - (u.lay.cols - 1) * u.m.gap) / u.lay.cols }
     n := wrap(u, s, w, 0, 0, false)
-    r := u.next(n * lh)
+    r := u.slot(n * lh)
     wrap(u, s, r.w, r.x, r.y, true)
 }
 
 fn wrap(u: *Ui, s: str, w: i64, x: i64, y: i64, paint: bool) -> i64 {
-    lh := font.line_h(u.font, u.th.size)
+    lh := font.line_h(u.font, u.m.size)
     var lines = 0
     var i = 0
     n := @as(i64, s.span)
     for i < n {
-        var k = font.fit(u.font, u.th.size, s[i..n], w)
+        var k = font.fit(u.font, u.m.size, s[i..n], w)
         if k <= 0 { k = font.ulen(s[i]) }
         var end = i + k
         if end < n && s[end] != ' ' && s[end] != 10 {   // назад до пробела
@@ -445,7 +549,7 @@ fn wrap(u: *Ui, s: str, w: i64, x: i64, y: i64, paint: bool) -> i64 {
                 break
             }
         }
-        if paint { font.text(u.c, u.font, u.th.size, x, y + lines * lh, u.th.text, 255, s[i..end]) }
+        if paint { font.text(u.c, u.font, u.m.size, x, y + lines * lh, u.m.text, 255, s[i..end]) }
         lines += 1
         i = end
         if i < n && (s[i] == ' ' || s[i] == 10) { i += 1 }
@@ -455,17 +559,17 @@ fn wrap(u: *Ui, s: str, w: i64, x: i64, y: i64, paint: bool) -> i64 {
 }
 
 pub fn Ui.separator(u: *Ui) {
-    r := u.next(1)
-    draw.fill(u.c, r.x, r.y, r.w, 1, u.th.border)
+    r := u.slot(1)
+    draw.fill(u.c, r.x, r.y, r.w, 1, u.m.border)
 }
 
 pub fn Ui.button(u: *Ui, s: str) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h)
+    r := u.slot(u.m.h)
     hit := u.click(id, r)
-    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.fill_for(id, r, u.th.button), u.th.border, 1)
-    u.label_at(r, s, u.th.text, true)
+    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.fill_for(id, r, u.m.button), u.m.border, 1)
+    u.label_at(r, s, u.m.text, true)
     return hit
 }
 
@@ -473,17 +577,19 @@ pub fn Ui.button(u: *Ui, s: str) -> bool {
 pub fn Ui.primary(u: *Ui, s: str) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h)
+    r := u.slot(u.m.h)
     hit := u.click(id, r)
-    draw.rrect(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.fill_for(id, r, u.th.accent), 255)
-    u.label_at(r, s, u.th.on_accent, true)
+    draw.rrect(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.fill_for(id, r, u.m.accent), 255)
+    u.label_at(r, s, u.m.on_accent, true)
     return hit
 }
 
 // картинка высотой h (ширина — по пропорциям, не шире колонки), углы радиуса rad
-pub fn Ui.image(u: *Ui, img: *draw.Image, h: i64, rad: i64) {
+pub fn Ui.image(u: *Ui, img: *draw.Image, lh: i64, lrad: i64) {
     if img == null { return }
-    r := u.next(h)
+    h := u.dp(lh)
+    rad := u.dp(lrad)
+    r := u.slot(h)
     var w = img.w * h / img.h
     var hh = h
     if w > r.w {
@@ -497,18 +603,19 @@ pub fn Ui.image(u: *Ui, img: *draw.Image, h: i64, rad: i64) {
 pub fn Ui.image_button(u: *Ui, img: *draw.Image, s: str) -> bool {
     u.id += 1
     id := u.id
-    var r = u.next(u.th.h)
+    var r = u.slot(u.m.h)
     if s.span == 0 && r.w > r.h { r.w = r.h }
     hit := u.click(id, r)
-    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.fill_for(id, r, u.th.button), u.th.border, 1)
-    isz := r.h - 14
+    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.fill_for(id, r, u.m.button), u.m.border, 1)
+    m7 := u.dp(7)
+    isz := r.h - 2 * m7
     if s.span == 0 {
-        draw.image(u.c, img, r.x + (r.w - isz) / 2, r.y + 7, isz, isz, 0, 255)
+        draw.image(u.c, img, r.x + (r.w - isz) / 2, r.y + m7, isz, isz, 0, 255)
     } else {
-        tw := font.width(u.font, u.th.size, s)
-        x0 := r.x + (r.w - isz - 8 - tw) / 2
-        draw.image(u.c, img, x0, r.y + 7, isz, isz, 0, 255)
-        u.label_at(Rect { x: x0 + isz + 8, y: r.y, w: tw, h: r.h }, s, u.th.text, false)
+        tw := font.width(u.font, u.m.size, s)
+        x0 := r.x + (r.w - isz - u.dp(8) - tw) / 2
+        draw.image(u.c, img, x0, r.y + m7, isz, isz, 0, 255)
+        u.label_at(Rect { x: x0 + isz + u.dp(8), y: r.y, w: tw, h: r.h }, s, u.m.text, false)
     }
     return hit
 }
@@ -525,18 +632,19 @@ fn Ui.check_mark(u: *Ui, x: i64, y: i64, s: i64, col: u32) {
 pub fn Ui.checkbox(u: *Ui, s: str, v: *bool) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h - 8)
+    r := u.slot(u.m.h - u.dp(8))
     hit := u.click(id, r)
     if hit { *v = !*v }
-    b := 20
+    b := u.dp(20)
     by := r.y + (r.h - b) / 2
     if *v {
-        draw.rrect(u.c, r.x, by, b, b, 5, u.fill_for(id, r, u.th.accent), 255)
-        u.check_mark(r.x, by, b, u.th.on_accent)
+        draw.rrect(u.c, r.x, by, b, b, u.dp(5), u.fill_for(id, r, u.m.accent), 255)
+        u.check_mark(r.x, by, b, u.m.on_accent)
     } else {
-        draw.rrect_box(u.c, r.x, by, b, b, 5, u.fill_for(id, r, u.th.field), u.th.border, 1)
+        draw.rrect_box(u.c, r.x, by, b, b, u.dp(5), u.fill_for(id, r, u.m.field), u.m.border, 1)
     }
-    u.label_at(Rect { x: r.x + b + 10, y: r.y, w: r.w - b - 10, h: r.h }, s, u.th.text, false)
+    g := u.dp(10)
+    u.label_at(Rect { x: r.x + b + g, y: r.y, w: r.w - b - g, h: r.h }, s, u.m.text, false)
     return hit
 }
 
@@ -544,21 +652,23 @@ pub fn Ui.checkbox(u: *Ui, s: str, v: *bool) -> bool {
 pub fn Ui.toggle(u: *Ui, s: str, v: *bool) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h - 8)
+    r := u.slot(u.m.h - u.dp(8))
     hit := u.click(id, r)
     if hit { *v = !*v }
-    tw := 40
-    th := 22
+    tw := u.dp(40)
+    th := u.dp(22)
+    m3 := u.dp(3)
     ty := r.y + (r.h - th) / 2
-    var track = u.th.border
-    var kx = r.x + 3
+    var track = u.m.border
+    var kx = r.x + m3
     if *v {
-        track = u.th.accent
-        kx = r.x + tw - th + 3
+        track = u.m.accent
+        kx = r.x + tw - th + m3
     }
     draw.rrect(u.c, r.x, ty, tw, th, th / 2, u.fill_for(id, r, track), 255)
-    draw.rrect(u.c, kx, ty + 3, th - 6, th - 6, th, 0xFFFFFF, 255)
-    u.label_at(Rect { x: r.x + tw + 10, y: r.y, w: r.w - tw - 10, h: r.h }, s, u.th.text, false)
+    draw.rrect(u.c, kx, ty + m3, th - 2 * m3, th - 2 * m3, th, 0xFFFFFF, 255)
+    g := u.dp(10)
+    u.label_at(Rect { x: r.x + tw + g, y: r.y, w: r.w - tw - g, h: r.h }, s, u.m.text, false)
     return hit
 }
 
@@ -566,18 +676,20 @@ pub fn Ui.toggle(u: *Ui, s: str, v: *bool) -> bool {
 pub fn Ui.radio(u: *Ui, s: str, v: *i64, val: i64) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h - 8)
+    r := u.slot(u.m.h - u.dp(8))
     hit := u.click(id, r)
     if hit { *v = val }
-    b := 20
+    b := u.dp(20)
+    m6 := u.dp(6)
     by := r.y + (r.h - b) / 2
     if *v == val {
-        draw.rrect(u.c, r.x, by, b, b, b, u.fill_for(id, r, u.th.accent), 255)
-        draw.rrect(u.c, r.x + 6, by + 6, b - 12, b - 12, b, u.th.on_accent, 255)
+        draw.rrect(u.c, r.x, by, b, b, b, u.fill_for(id, r, u.m.accent), 255)
+        draw.rrect(u.c, r.x + m6, by + m6, b - 2 * m6, b - 2 * m6, b, u.m.on_accent, 255)
     } else {
-        draw.rrect_box(u.c, r.x, by, b, b, b, u.fill_for(id, r, u.th.field), u.th.border, 1)
+        draw.rrect_box(u.c, r.x, by, b, b, b, u.fill_for(id, r, u.m.field), u.m.border, 1)
     }
-    u.label_at(Rect { x: r.x + b + 10, y: r.y, w: r.w - b - 10, h: r.h }, s, u.th.text, false)
+    g := u.dp(10)
+    u.label_at(Rect { x: r.x + b + g, y: r.y, w: r.w - b - g, h: r.h }, s, u.m.text, false)
     return hit
 }
 
@@ -585,39 +697,41 @@ pub fn Ui.radio(u: *Ui, s: str, v: *i64, val: i64) -> bool {
 pub fn Ui.slider(u: *Ui, v: *i64, lo: i64, hi: i64) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h - 8)
-    vw := 52                             // справа — значение
+    r := u.slot(u.m.h - u.dp(8))
+    vw := u.dp(52)                       // справа — значение
+    e := u.dp(10)                        // поля дорожки
     tr := Rect { x: r.x, y: r.y, w: r.w - vw, h: r.h }
     if u.hot(tr) && u.pressed { u.active = id }
     old := *v
-    if u.active == id && u.down && hi > lo && tr.w > 20 {
-        var nv = lo + ((u.mx - tr.x - 10) * (hi - lo) * 2 + (tr.w - 20)) / ((tr.w - 20) * 2)
+    if u.active == id && u.down && hi > lo && tr.w > 2 * e {
+        var nv = lo + ((u.mx - tr.x - e) * (hi - lo) * 2 + (tr.w - 2 * e)) / ((tr.w - 2 * e) * 2)
         if nv < lo { nv = lo }
         if nv > hi { nv = hi }
         *v = nv
     }
     var k = 0
-    if hi > lo { k = (*v - lo) * (tr.w - 20) / (hi - lo) }
+    if hi > lo { k = (*v - lo) * (tr.w - 2 * e) / (hi - lo) }
     cy := tr.y + tr.h / 2
-    draw.rrect(u.c, tr.x, cy - 3, tr.w, 6, 3, u.th.field, 255)
-    draw.rrect(u.c, tr.x, cy - 3, k + 10, 6, 3, u.th.accent, 255)
-    var kn = 18
-    if u.active == id || u.hot(tr) { kn = 20 }
-    draw.rrect(u.c, tr.x + k + 10 - kn / 2 - 1, cy - kn / 2 - 1, kn + 2, kn + 2, kn, u.th.border, 255)
-    draw.rrect(u.c, tr.x + k + 10 - kn / 2, cy - kn / 2, kn, kn, kn, 0xFFFFFF, 255)
+    t3 := u.dp(3)
+    draw.rrect(u.c, tr.x, cy - t3, tr.w, 2 * t3, t3, u.m.field, 255)
+    draw.rrect(u.c, tr.x, cy - t3, k + e, 2 * t3, t3, u.m.accent, 255)
+    var kn = u.dp(18)
+    if u.active == id || u.hot(tr) { kn = u.dp(20) }
+    draw.rrect(u.c, tr.x + k + e - kn / 2 - 1, cy - kn / 2 - 1, kn + 2, kn + 2, kn, u.m.border, 255)
+    draw.rrect(u.c, tr.x + k + e - kn / 2, cy - kn / 2, kn, kn, kn, 0xFFFFFF, 255)
     vs := num(*v)
-    u.label_at(Rect { x: r.x + r.w - vw + 10, y: r.y, w: vw - 10, h: r.h }, vs, u.th.dim, false)
+    u.label_at(Rect { x: r.x + r.w - vw + e, y: r.y, w: vw - e, h: r.h }, vs, u.m.dim, false)
     return *v != old
 }
 
 // полоса прогресса v из max
 pub fn Ui.progress(u: *Ui, v: i64, max: i64) {
-    r := u.next(10)
-    draw.rrect(u.c, r.x, r.y, r.w, r.h, 5, u.th.field, 255)
+    r := u.slot(u.dp(10))
+    draw.rrect(u.c, r.x, r.y, r.w, r.h, r.h / 2, u.m.field, 255)
     if max > 0 && v > 0 {
         var w = r.w * v / max
         if w > r.w { w = r.w }
-        draw.rrect(u.c, r.x, r.y, draw.imax(w, 10), r.h, 5, u.th.accent, 255)
+        draw.rrect(u.c, r.x, r.y, draw.imax(w, r.h), r.h, r.h / 2, u.m.accent, 255)
     }
 }
 
@@ -647,12 +761,15 @@ pub fn item(items: str, k: i64) -> str {
 fn Ui.chevron(u: *Ui, x: i64, y: i64, up: bool, col: u32) {
     fx := @as(f32, x)
     fy := @as(f32, y)
+    k := u.fk()
+    a := 5.0 * k
+    b := 2.5 * k
     if up {
-        draw.line(u.c, fx - 5.0, fy + 2.5, fx, fy - 2.5, 2.0, col)
-        draw.line(u.c, fx, fy - 2.5, fx + 5.0, fy + 2.5, 2.0, col)
+        draw.line(u.c, fx - a, fy + b, fx, fy - b, 2.0 * k, col)
+        draw.line(u.c, fx, fy - b, fx + a, fy + b, 2.0 * k, col)
     } else {
-        draw.line(u.c, fx - 5.0, fy - 2.5, fx, fy + 2.5, 2.0, col)
-        draw.line(u.c, fx, fy + 2.5, fx + 5.0, fy - 2.5, 2.0, col)
+        draw.line(u.c, fx - a, fy - b, fx, fy + b, 2.0 * k, col)
+        draw.line(u.c, fx, fy + b, fx + a, fy - b, 2.0 * k, col)
     }
 }
 
@@ -660,7 +777,7 @@ fn Ui.chevron(u: *Ui, x: i64, y: i64, up: bool, col: u32) {
 pub fn Ui.dropdown(u: *Ui, v: *i64, items: str) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h)
+    r := u.slot(u.m.h)
     n := count(items)
     var picked = false
     if u.pop == id {
@@ -677,39 +794,42 @@ pub fn Ui.dropdown(u: *Ui, v: *i64, items: str) -> bool {
             u.pop = 0
         } else {
             u.pop = id
-            var ph = n * u.th.h + 8
-            var py = r.y + r.h + 4
-            if py + ph > u.c.h && r.y - ph - 4 >= 0 { py = r.y - ph - 4 }
+            m4 := u.dp(4)
+            var ph = n * u.m.h + 2 * m4
+            var py = r.y + r.h + m4
+            if py + ph > u.c.h && r.y - ph - m4 >= 0 { py = r.y - ph - m4 }
             u.pop_r = Rect { x: r.x, y: py, w: r.w, h: ph }
             u.pop_items = items
             u.pop_v = v
         }
     }
     open := u.pop == id
-    var border = u.th.border
-    if open { border = u.th.accent }
-    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.fill_for(id, r, u.th.field), border, 1)
-    u.label_at(Rect { x: r.x + 12, y: r.y, w: r.w - 40, h: r.h }, item(items, *v), u.th.text, false)
-    u.chevron(r.x + r.w - 20, r.y + r.h / 2, open, u.th.dim)
+    var border = u.m.border
+    if open { border = u.m.accent }
+    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.fill_for(id, r, u.m.field), border, 1)
+    u.label_at(Rect { x: r.x + u.dp(12), y: r.y, w: r.w - u.dp(40), h: r.h }, item(items, *v), u.m.text, false)
+    u.chevron(r.x + r.w - u.dp(20), r.y + r.h / 2, open, u.m.dim)
     return picked
 }
 
 fn Ui.draw_popup(u: *Ui) {
     draw.noclip(u.c)
     r := u.pop_r
-    draw.shadow(u.c, r.x, r.y, r.w, r.h, u.th.radius, 12)
-    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.th.panel, u.th.border, 1)
+    draw.shadow(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.dp(12))
+    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.m.panel, u.m.border, 1)
     n := count(u.pop_items)
+    m4 := u.dp(4)
+    rr := draw.imax(0, u.m.radius - u.dp(3))
     for k in 0..n {
-        ir := Rect { x: r.x + 4, y: r.y + 4 + k * u.th.h, w: r.w - 8, h: u.th.h }
-        var col = u.th.text
+        ir := Rect { x: r.x + m4, y: r.y + m4 + k * u.m.h, w: r.w - 2 * m4, h: u.m.h }
+        var col = u.m.text
         if k == *u.pop_v {
-            draw.rrect(u.c, ir.x, ir.y, ir.w, ir.h, u.th.radius - 3, u.th.accent, 255)
-            col = u.th.on_accent
+            draw.rrect(u.c, ir.x, ir.y, ir.w, ir.h, rr, u.m.accent, 255)
+            col = u.m.on_accent
         } else if inside(ir, u.mx, u.my) {
-            draw.rrect(u.c, ir.x, ir.y, ir.w, ir.h, u.th.radius - 3, u.th.hover, 255)
+            draw.rrect(u.c, ir.x, ir.y, ir.w, ir.h, rr, u.m.hover, 255)
         }
-        u.label_at(Rect { x: ir.x + 10, y: ir.y, w: ir.w - 20, h: ir.h }, item(u.pop_items, k), col, false)
+        u.label_at(Rect { x: ir.x + u.dp(10), y: ir.y, w: ir.w - u.dp(20), h: ir.h }, item(u.pop_items, k), col, false)
     }
 }
 
@@ -717,39 +837,40 @@ fn Ui.draw_popup(u: *Ui) {
 pub fn Ui.tabs(u: *Ui, v: *i64, items: str) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h)
+    r := u.slot(u.m.h)
     n := count(items)
-    draw.rrect(u.c, r.x, r.y, r.w, r.h, u.th.radius, u.th.field, 255)
+    draw.rrect(u.c, r.x, r.y, r.w, r.h, u.m.radius, u.m.field, 255)
     var changed = false
     for k in 0..n {
-        tr := Rect { x: r.x + 3 + k * (r.w - 6) / n, y: r.y + 3, w: (r.w - 6) / n, h: r.h - 6 }
+        m3 := u.dp(3)
+        tr := Rect { x: r.x + m3 + k * (r.w - 2 * m3) / n, y: r.y + m3, w: (r.w - 2 * m3) / n, h: r.h - 2 * m3 }
         if u.click(id * 64 + k + 0x100000, tr) && *v != k {
             *v = k
             changed = true
         }
-        var col = u.th.dim
+        var col = u.m.dim
         if *v == k {
-            draw.rrect_box(u.c, tr.x, tr.y, tr.w, tr.h, u.th.radius - 3, u.th.button, u.th.border, 1)
-            col = u.th.text
+            draw.rrect_box(u.c, tr.x, tr.y, tr.w, tr.h, draw.imax(0, u.m.radius - u.dp(3)), u.m.button, u.m.border, 1)
+            col = u.m.text
         } else if u.hot(tr) {
-            col = u.th.text
+            col = u.m.text
         }
         u.label_at(tr, item(items, k), col, true)
     }
     return changed
 }
 
-// поле ввода (латиница, цифры, знаки) -> изменился ли текст
+// поле ввода: любой язык и раскладка -> изменился ли текст
 pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     u.id += 1
     id := u.id
-    r := u.next(u.th.h)
-    pad := 12
+    r := u.slot(u.m.h)
+    pad := u.dp(12)
     hot := u.hot(r)
     if u.pressed {
         if hot {
             u.focus = id
-            u.cur = font.fit(u.font, u.th.size, t.get(), u.mx - r.x - pad + 4)
+            u.cur = font.fit(u.font, u.m.size, t.get(), u.mx - r.x - pad + u.dp(4))
         } else if u.focus == id {
             u.focus = 0
         }
@@ -758,20 +879,19 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     var changed = false
     if focused {
         if u.cur > t.n { u.cur = t.n }
-        for i in 0..u.nkeys {
-            if t.n < 255 {
-                var j = t.n
-                for j > u.cur {
-                    t.b[j] = t.b[j - 1]
-                    j -= 1
-                }
-                t.b[u.cur] = u.keys[i]
-                t.n += 1
-                u.cur += 1
-                changed = true
-            }
-        }
         w := u.win
+        tn := w.ntext                    // набранное за кадр, UTF-8
+        if tn > 0 && t.n + tn <= 255 {
+            var j = t.n - 1
+            for j >= u.cur {
+                t.b[j + tn] = t.b[j]
+                j -= 1
+            }
+            for i in 0..tn { t.b[u.cur + i] = w.text[i] }
+            t.n += tn
+            u.cur += tn
+            changed = true
+        }
         if w.hit[KEY_BACKSPACE] && u.cur > 0 {
             var k = 1
             for u.cur - k > 0 && (t.b[u.cur - k] & 0xC0) == 0x80 { k += 1 }
@@ -795,29 +915,35 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
         if w.hit[KEY_END] { u.cur = t.n }
         if w.hit[KEY_ENTER] || w.hit[KEY_ESC] { u.focus = 0 }
     }
-    var border = u.th.border
-    if focused { border = u.th.accent }
-    var bg = u.th.field
+    var border = u.m.border
+    if focused { border = u.m.accent }
+    var bg = u.m.field
     if hot && !focused { bg = draw.mix(bg, 0xFFFFFF, 10) }
-    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.th.radius, bg, border, 1)
-    if focused { draw.rrect(u.c, r.x - 3, r.y - 3, r.w + 6, r.h + 6, u.th.radius + 3, u.th.accent, 40) }
+    draw.rrect_box(u.c, r.x, r.y, r.w, r.h, u.m.radius, bg, border, 1)
+    if focused {
+        m3 := u.dp(3)
+        draw.rrect(u.c, r.x - m3, r.y - m3, r.w + 2 * m3, r.h + 2 * m3, u.m.radius + m3, u.m.accent, 40)
+    }
     cx0 := u.c.cx0
     cy0 := u.c.cy0
     cx1 := u.c.cx1
     cy1 := u.c.cy1
     draw.clip(u.c, r.x + 2, r.y, r.w - 4, r.h)
     s := t.get()
-    tw := font.width(u.font, u.th.size, s[0..u.cur])
+    tw := font.width(u.font, u.m.size, s[0..u.cur])
     var sx = r.x + pad
     if tw > r.w - 2 * pad { sx = r.x + r.w - pad - tw }      // курсор всегда виден
-    lh := font.line_h(u.font, u.th.size)
+    lh := font.line_h(u.font, u.m.size)
     ty := r.y + (r.h - lh) / 2
     if t.n == 0 && !focused {
-        font.text(u.c, u.font, u.th.size, sx, ty, u.th.dim, 255, hint)
+        font.text(u.c, u.font, u.m.size, sx, ty, u.m.dim, 255, hint)
     } else {
-        font.text(u.c, u.font, u.th.size, sx, ty, u.th.text, 255, s)
+        font.text(u.c, u.font, u.m.size, sx, ty, u.m.text, 255, s)
     }
-    if focused && (u.time() / 530) % 2 == 0 { draw.fill(u.c, sx + tw, ty + 2, 2, lh - 4, u.th.accent) }
+    if focused && (u.time() / 530) % 2 == 0 {
+        cw := draw.imax(1, u.dp(2))
+        draw.fill(u.c, sx + tw, ty + cw, cw, lh - 2 * cw, u.m.accent)
+    }
     u.c.cx0 = cx0
     u.c.cy0 = cy0
     u.c.cx1 = cx1
@@ -825,15 +951,28 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     return changed
 }
 
-// ---- рисование напрямую (координаты окна)
-pub fn Ui.rect(u: *Ui, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32) { draw.rrect(u.c, x, y, w, h, rad, col, 255) }
+// ---- рисование напрямую (логические координаты страницы)
+pub fn Ui.rect(u: *Ui, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32) {
+    b := u.box(x, y, w, h)
+    draw.rrect(u.c, b.x, b.y, b.w, b.h, u.dp(rad), col, 255)
+}
 
 pub fn Ui.text_at(u: *Ui, x: i64, y: i64, s: str, f: *font.Font, size: i64, col: u32) -> i64 {
     var ff = f
     if ff == null { ff = u.font }
-    return font.text(u.c, ff, size, x, y, col, 255, s)
+    return u.lg(font.text(u.c, ff, u.dp(size), u.ox(x), u.oy(y), col, 255, s))
 }
 
-pub fn Ui.picture(u: *Ui, img: *draw.Image, x: i64, y: i64, w: i64, h: i64, rad: i64) { draw.image(u.c, img, x, y, w, h, rad, 255) }
+pub fn Ui.picture(u: *Ui, img: *draw.Image, x: i64, y: i64, w: i64, h: i64, rad: i64) {
+    b := u.box(x, y, w, h)
+    draw.image(u.c, img, b.x, b.y, b.w, b.h, u.dp(rad), 255)
+}
+
+// ширина строки в логических пикселях
+pub fn Ui.text_width(u: *Ui, f: *font.Font, size: i64, s: str) -> i64 {
+    var ff = f
+    if ff == null { ff = u.font }
+    return u.lg(font.width(ff, u.dp(size), s))
+}
 
 pub fn text_width(f: *font.Font, size: i64, s: str) -> i64 { return font.width(f, size, s) }

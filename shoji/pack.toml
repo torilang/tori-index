@@ -1,6 +1,6 @@
 [package]
 name = "shoji"
 author = "torilang"
-version = "0.1.0"
-description = "интерфейсы для Tori: панели, кнопки, флажки, ползунки, списки, поля ввода, вкладки, шрифты TrueType, PNG, скругления и тени"
+version = "0.2.0"
+description = "интерфейсы для Tori: панели, кнопки, флажки, ползунки, списки, поля ввода, вкладки, шрифты TrueType и OpenType, PNG, скругления и тени, масштаб под экран, ввод на любом языке"
 license = "MIT; встроенный шрифт Noto Sans и шрифты витрины Fira Sans — SIL OFL 1.1"
