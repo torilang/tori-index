@@ -1,102 +1,102 @@
-# 1. Начало
+# 1. Getting started
 
-## Установка
+## Installing
 
-В папке проекта:
+In the project folder:
 
 ```bash
 nest install shoji
 ```
 
-nest скачает пакет в `~/.tori/packs/shoji` (в Windows — `%USERPROFILE%\.tori\packs\shoji`) и пропишет его в `nest.toml` проекта. Дальше `tori run main.tr` и `tori bld main.tr` сами находят shoji.
+nest downloads the package to `~/.tori/packs/shoji` (on Windows — `%USERPROFILE%\.tori\packs\shoji`) and adds it to the project's `nest.toml`. After that `tori run main.tr` and `tori bld main.tr` find shoji by themselves.
 
-Чтобы поправить сам пакет под проект, ставь его копией рядом с `src`: `nest install shoji --local`.
+To modify the package itself for your project, install it as a copy next to `src`: `nest install shoji --local`.
 
-## Первое окно
+## The first window
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Привет", 480, 320)
+    ui := shoji.open("Hello", 480, 320)
     var n = 0
     for ui.frame() {
-        ui.panel("Счётчик", 20, 20, 440, 280)
-        if ui.primary("Ещё") { n += 1 }
-        ui.label(shoji.cat("Нажато: ", shoji.num(n)))
+        ui.panel("Counter", 20, 20, 440, 280)
+        if ui.primary("More") { n += 1 }
+        ui.label(shoji.cat("Pressed: ", shoji.num(n)))
         ui.end()
     }
 }
 ```
 
-* `shoji.open(заголовок, w, h)` открывает окно и возвращает `*Ui` — через него делается всё остальное. Размер задаётся в логических пикселях: на экране с масштабом 150 % окно будет в полтора раза больше (см. [главу 6](06-scale.md)). Окно можно растягивать мышью.
-* `for ui.frame() { … }` — цикл кадров. Он кончается, когда окно закрыли.
-* `ui.panel(…)` … `ui.end()` — панель, внутри неё виджеты встают колонкой.
-* `ui.primary("Ещё")` рисует кнопку и сразу отвечает, нажали ли её в этом кадре.
+* `shoji.open(title, w, h)` opens a window and returns a `*Ui` — everything else goes through it. The size is in logical pixels: on a screen at 150 % scale the window is one and a half times larger (see [chapter 6](06-scale.md)). The window can be resized with the mouse.
+* `for ui.frame() { … }` is the frame loop. It ends when the window is closed.
+* `ui.panel(…)` … `ui.end()` is a panel; the widgets inside it stack in a column.
+* `ui.primary("More")` draws a button and answers right away whether it was pressed in this frame.
 
 ## Immediate mode
 
-В shoji нет объектов-виджетов, которые живут сами по себе, и нет колбэков. Каждый кадр программа заново описывает окно сверху вниз, а каждый виджет:
+shoji has no widget objects that live on their own, and no callbacks. Every frame the program describes the window anew from top to bottom, and every widget:
 
-1. рисует себя;
-2. смотрит на мышь и клавиатуру;
-3. сразу возвращает ответ: нажали ли кнопку, изменился ли флажок.
+1. draws itself;
+2. looks at the mouse and keyboard;
+3. returns the answer right away: whether the button was pressed, whether the checkbox changed.
 
-Состояние — это твои переменные. Виджет получает указатель и меняет переменную сам:
+The state is your own variables. A widget gets a pointer and changes the variable itself:
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Настройки", 360, 220)
+    ui := shoji.open("Settings", 360, 220)
     var sound = true
     var volume = 70
     for ui.frame() {
-        ui.panel("Звук", 20, 20, 320, 180)
-        ui.toggle("Включён", &sound)
-        if sound { ui.slider(&volume, 0, 100) }      // виджет можно просто не рисовать
+        ui.panel("Sound", 20, 20, 320, 180)
+        ui.toggle("On", &sound)
+        if sound { ui.slider(&volume, 0, 100) }      // a widget can simply not be drawn
         ui.end()
     }
 }
 ```
 
-Отсюда простые правила:
+This gives a few simple rules:
 
-* **Показать или спрятать виджет** — обычный `if`.
-* **Повторить виджет** — обычный `for`.
-* **Узнать, что случилось**, — проверить, что вернул виджет: `if ui.button("OK") { … }`.
+* **To show or hide a widget**, use a plain `if`.
+* **To repeat a widget**, use a plain `for`.
+* **To find out what happened**, check what the widget returned: `if ui.button("OK") { … }`.
 
-Виджеты различаются по порядку, в котором их рисуют за кадр. Если поле ввода в фокусе, а над ним то появляется, то пропадает другой виджет, фокус может перескочить на соседа. Поэтому поля ввода лучше ставить выше того, что меняется.
+Widgets are told apart by the order they are drawn in during a frame. If a text field has focus and another widget above it keeps appearing and disappearing, the focus may jump to a neighbor. So it's better to put text fields above whatever changes.
 
-## Цикл кадров
+## The frame loop
 
-`ui.frame()` за один вызов:
+In one call `ui.frame()`:
 
-1. заканчивает прошлый кадр (поверх всего — открытый выпадающий список, полоса прокрутки);
-2. показывает его в окне и ждёт около 1/60 секунды;
-3. разбирает мышь и клавиатуру;
-4. начинает новый кадр: заливает окно фоном темы.
+1. finishes the previous frame (on top of everything — an open dropdown list, the scrollbar);
+2. shows it in the window and waits about 1/60 of a second;
+3. processes the mouse and keyboard;
+4. starts a new frame: fills the window with the theme background.
 
-Возвращает `false`, когда окно закрыли.
+It returns `false` when the window has been closed.
 
-Кадр рисуется заново целиком, но быстро: глифы шрифтов, углы скруглений и масштабированные картинки берутся из кэшей.
+The whole frame is redrawn every time, but it's fast: font glyphs, rounded corners and scaled images come from caches.
 
-### Несколько окон
+### Several windows
 
-У каждого окна свой `*Ui`. `ui.frame()` тут не подходит: он сам зовёт встроенный `frame()`, а тот показывает и разбирает сразу все окна. Поэтому кадр ведут вручную:
+Each window has its own `*Ui`. `ui.frame()` doesn't fit here: it calls the built-in `frame()` itself, which shows and processes all windows at once. So the frame is driven by hand:
 
 ```tori
 use shoji
 
 fn main() {
-    a := shoji.open("Первое", 320, 200)
-    b := shoji.open("Второе", 320, 200)
+    a := shoji.open("First", 320, 200)
+    b := shoji.open("Second", 320, 200)
     var n = 0
     for frame() {
         if !a.win.open || !b.win.open { break }
         a.begin()
         a.panel("", 20, 20, 280, 160)
-        if a.button("Плюс") { n += 1 }
+        if a.button("Plus") { n += 1 }
         a.end()
         a.finish()
 
@@ -109,10 +109,10 @@ fn main() {
 }
 ```
 
-`shoji.attach(win)` даёт `*Ui` к окну, открытому через встроенный `window()`.
+`shoji.attach(win)` gives a `*Ui` for a window opened with the built-in `window()`.
 
-## Строки на лету
+## Strings on the fly
 
-`shoji.num(v)` превращает число в строку, `shoji.cat(a, b)` склеивает две строки. Результат лежит в кольцевом буфере на 64 КБ и живёт несколько кадров. Этого хватает, чтобы показать строку сразу, но хранить её надолго нельзя: для этого скопируй её в свой буфер или в `Text` (см. [главу 3](03-widgets.md#поле-ввода)).
+`shoji.num(v)` turns a number into a string, `shoji.cat(a, b)` joins two strings. The result lives in a 64 KB ring buffer for a few frames. That's enough to show a string right away, but you can't keep it for long: for that, copy it into your own buffer or into a `Text` (see [chapter 3](03-widgets.md#text-field)).
 
-Дальше: [Раскладка →](02-layout.md)
+Next: [Layout →](02-layout.md)

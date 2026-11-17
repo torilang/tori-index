@@ -1,17 +1,17 @@
-// font — векторные шрифты: TrueType и OpenType (.ttf, .otf, .ttc; контуры glyf и CFF) и встроенный шрифт shoji.
-// Глиф растеризуется со сглаживанием один раз на размер и дальше берётся из кэша.
-// Если в шрифте нет символа, он берётся из запасных: своих (add_fallback) и системных (Noto, DejaVu, Segoe UI…).
+// font — vector fonts: TrueType and OpenType (.ttf, .otf, .ttc; glyf and CFF outlines) and the built-in shoji font.
+// A glyph is rasterized with anti-aliasing once per size and then taken from the cache.
+// If a font lacks a character, it comes from fallbacks: your own (add_fallback) and system ones (Noto, DejaVu, Segoe UI…).
 use sys
 use draw
 use font_data
 
 pub struct Font {
-    d: *u8                               // байты .ttf | распакованный встроенный шрифт
+    d: *u8                               // .ttf bytes | the unpacked built-in font
     n: i64
-    packed: bool                         // встроенный формат shoji
-    upem: i64                            // единиц на em
-    asc: i64                             // над базовой линией (+)
-    desc: i64                            // под ней (-)
+    packed: bool                         // the built-in shoji format
+    upem: i64                            // units per em
+    asc: i64                             // above the baseline (+)
+    desc: i64                            // below it (-)
     gap: i64
     nglyphs: i64
     glyf: i64
@@ -19,34 +19,34 @@ pub struct Font {
     locfmt: i64
     hmtx: i64
     nhm: i64
-    cmap: i64                            // подтаблица cmap
+    cmap: i64                            // the cmap subtable
     cmapfmt: i64                         // 4 | 12
-    pn: i64                              // встроенный: число глифов,
-    pcp: *i64                            // их символы (по возрастанию),
-    padv: *i64                           // ширины
-    pofs: *i64                           // и где лежат контуры
-    cff: i64                             // таблица CFF (.otf) | -1
-    cs: i64                              // её INDEX CharStrings,
-    gsub: i64                            // глобальные подпрограммы,
-    lsub: i64                            // локальные | -1
-    fdsel: i64                           // FDSelect (CID-шрифт, например китайский) | -1
-    fdsub: *i64                          // локальные подпрограммы каждого FD
-    slots: *Glyph                        // кэш растеризованных глифов
+    pn: i64                              // built-in: the number of glyphs,
+    pcp: *i64                            // their characters (ascending),
+    padv: *i64                           // widths
+    pofs: *i64                           // and where the outlines are
+    cff: i64                             // the CFF table (.otf) | -1
+    cs: i64                              // its CharStrings INDEX,
+    gsub: i64                            // global subroutines,
+    lsub: i64                            // local ones | -1
+    fdsel: i64                           // FDSelect (a CID font, e.g. Chinese) | -1
+    fdsub: *i64                          // local subroutines of each FD
+    slots: *Glyph                        // the cache of rasterized glyphs
     nslots: i64
     used: i64
 }
 
 pub struct Glyph {
-    key: i64                             // (глиф + 1) << 16 | размер; 0 — пустой слот
+    key: i64                             // (glyph + 1) << 16 | size; 0 — an empty slot
     w: i64
     h: i64
-    ox: i64                              // смещение маски от пера и базовой линии
+    ox: i64                              // mask offset from the pen and the baseline
     oy: i64
-    adv: i64                             // ширина в 1/64 пикселя
+    adv: i64                             // advance in 1/64 pixel
     bm: *u8
 }
 
-// контур глифа: точки (единицы шрифта, y вверх), on — точка на кривой, ends — последняя точка контура
+// a glyph outline: points (font units, y up), on — a point on the curve, ends — the last point of each contour
 pub struct Outline {
     xs: *f32
     ys: *f32
@@ -59,7 +59,7 @@ pub struct Outline {
 const MAXPT = 16384
 const MAXCT = 2048
 
-var ol: *Outline                         // общий для растеризации
+var ol: *Outline                         // shared for rasterization
 var builtin_font: *Font
 
 pub fn outline_new() -> *Outline {
@@ -71,7 +71,7 @@ pub fn outline_new() -> *Outline {
     return o
 }
 
-// ---- чтение big-endian с проверкой границ
+// ---- big-endian reads with bounds checks
 fn b8(f: *Font, o: i64) -> i64 {
     if o < 0 || o >= f.n { return 0 }
     return @as(i64, f.d[o])
@@ -96,7 +96,7 @@ fn new_font() -> *Font {
     return f
 }
 
-// .ttf, .otf или .ttc (первый шрифт коллекции) из байтов -> шрифт | null
+// .ttf, .otf or .ttc (the first font of a collection) from bytes -> a font | null
 pub fn load_ttf(data: str) -> *Font {
     if data.span < 12 { return null }
     f := new_font()
@@ -166,7 +166,7 @@ pub fn load_ttf(data: str) -> *Font {
     return f
 }
 
-// глиф символа cp (0 — нет такого)
+// the glyph of character cp (0 — none)
 pub fn index(f: *Font, cp: i64) -> i64 {
     if f.packed {
         var lo = 0
@@ -215,7 +215,7 @@ pub fn index(f: *Font, cp: i64) -> i64 {
     return (g + d) & 0xFFFF
 }
 
-// ширина глифа в единицах шрифта
+// glyph advance in font units
 pub fn advance(f: *Font, gid: i64) -> i64 {
     if f.packed {
         if gid < 1 || gid > f.pn { return f.upem / 2 }
@@ -226,7 +226,7 @@ pub fn advance(f: *Font, gid: i64) -> i64 {
     return b16(f, f.hmtx + k * 4)
 }
 
-// контур глифа -> o (составные глифы собираются из частей)
+// glyph outline -> o (composite glyphs are assembled from their parts)
 pub fn outline(f: *Font, gid: i64, o: *Outline) {
     o.np = 0
     o.nc = 0
@@ -239,14 +239,14 @@ pub fn outline(f: *Font, gid: i64, o: *Outline) {
     }
 }
 
-// ---- CFF (.otf): контуры — программы Type 2 с кубическими кривыми
-fn cu(f: *Font, o: i64, n: i64) -> i64 {      // n байт big-endian
+// ---- CFF (.otf): outlines are Type 2 programs with cubic curves
+fn cu(f: *Font, o: i64, n: i64) -> i64 {      // n bytes big-endian
     var v = 0
     for i in 0..n { v = (v << 8) | b8(f, o + i) }
     return v
 }
 
-// элемент i структуры INDEX с начала p -> [*a, *b)
+// element i of an INDEX structure starting at p -> [*a, *b)
 fn idx_get(f: *Font, p: i64, i: i64, a: *i64, b: *i64) -> bool {
     n := b16(f, p)
     if i < 0 || i >= n { return false }
@@ -264,7 +264,7 @@ fn idx_end(f: *Font, p: i64) -> i64 {
     return p + 3 + (n + 1) * os - 1 + cu(f, p + 3 + n * os, os)
 }
 
-// DICT [a, b): операнды оператора op (12 x — это 1200 + x) -> v[0], v[1]
+// DICT [a, b): the operands of operator op (12 x is 1200 + x) -> v[0], v[1]
 fn dict(f: *Font, a: i64, b: i64, op: i64, v: *i64) -> bool {
     var st: [8]i64
     var n = 0
@@ -294,7 +294,7 @@ fn dict(f: *Font, a: i64, b: i64, op: i64, v: *i64) -> bool {
             num = b32(f, p + 1)
             if num >= 0x80000000 { num -= 0x100000000 }
             p += 5
-        } else if c == 30 {                      // дробное: пропускаем
+        } else if c == 30 {                      // a real number: skip it
             p += 1
             for p < b {
                 d := b8(f, p)
@@ -331,7 +331,7 @@ fn priv_subrs(f: *Font, off: i64, size: i64, po: i64) -> i64 {
 
 fn cff_init(f: *Font, off: i64) -> bool {
     f.cff = off
-    top := idx_end(f, off + b8(f, off + 2))       // за INDEX имён
+    top := idx_end(f, off + b8(f, off + 2))       // past the Name INDEX
     strs := idx_end(f, top)
     f.gsub = idx_end(f, strs)
     f.lsub = -1
@@ -344,7 +344,7 @@ fn cff_init(f: *Font, off: i64) -> bool {
         return false
     }
     f.cs = off + v[0]
-    if dict(f, a, b, 1237, &v[0]) {              // FDSelect: шрифт из нескольких FD
+    if dict(f, a, b, 1237, &v[0]) {              // FDSelect: a font made of several FDs
         f.fdsel = off + v[0]
         if !dict(f, a, b, 1236, &v[0]) {
             f.cff = -1
@@ -372,7 +372,7 @@ fn fd_of(f: *Font, gid: i64) -> i64 {
     if fmt == 3 {
         var lo = 0
         var hi = b16(f, s + 1)
-        for lo < hi {                            // последний диапазон с first <= gid
+        for lo < hi {                            // the last range with first <= gid
             mid := (lo + hi) / 2
             if b16(f, s + 3 + mid * 3) <= gid { lo = mid + 1 } else { hi = mid }
         }
@@ -387,7 +387,7 @@ struct Cs {
     x: f32
     y: f32
     stems: i64
-    width: bool                          // ширина глифа уже снята со стека
+    width: bool                          // the glyph width is already off the stack
     open: bool
     end: bool
     lsub: i64
@@ -400,7 +400,7 @@ fn bias(n: i64) -> i64 {
     return 32768
 }
 
-// точка контура: 1 — на кривой, 3 — управляющая кубической
+// an outline point: 1 — on the curve, 3 — a cubic control point
 fn cs_pt(c: *Cs, tag: i64) {
     o := c.o
     if o.np >= MAXPT { return }
@@ -453,7 +453,7 @@ fn cs_curve(c: *Cs, a: f32, b: f32, d: f32, e: f32, g: f32, h: f32) {
     cs_pt(c, 1)
 }
 
-// оператор, очищающий стек: первым числом может лежать ширина глифа -> с какого числа аргументы
+// an operator that clears the stack: the glyph width may come first -> the index where the arguments start
 fn cs_base(c: *Cs, odd: bool) -> i64 {
     if c.width { return 0 }
     c.width = true
@@ -474,7 +474,7 @@ fn cs_run(c: *Cs, f: *Font, a: i64, b: i64, depth: i64) {
     var p = a
     for p < b && !c.end {
         v := b8(f, p)
-        if v >= 32 || v == 28 {                  // число
+        if v >= 32 || v == 28 {                  // a number
             var num: f32 = 0.0
             if v == 28 {
                 num = @as(f32, s16(f, p + 1))
@@ -503,7 +503,7 @@ fn cs_run(c: *Cs, f: *Font, a: i64, b: i64, depth: i64) {
         p += 1
         n := c.n
         switch v {
-            1, 3, 18, 23 => {                    // стебли подсказок
+            1, 3, 18, 23 => {                    // hint stems
                 k := cs_base(c, true)
                 c.stems += (n - k) / 2
             }
@@ -538,7 +538,7 @@ fn cs_run(c: *Cs, f: *Font, a: i64, b: i64, depth: i64) {
                     h = !h
                 }
             }
-            8, 24 => {                           // rrcurveto; rcurveline — и линия в конце
+            8, 24 => {                           // rrcurveto; rcurveline — plus a line at the end
                 var i = 0
                 for i + 5 < n {
                     cs_curve(c, c.st[i], c.st[i + 1], c.st[i + 2], c.st[i + 3], c.st[i + 4], c.st[i + 5])
@@ -607,7 +607,7 @@ fn cs_run(c: *Cs, f: *Font, a: i64, b: i64, depth: i64) {
                         if idx_get(f, sub, ix, &sa, &sb) { cs_run(c, f, sa, sb, depth + 1) }
                     }
                 }
-                continue                         // аргументы остаются на стеке
+                continue                         // the arguments stay on the stack
             }
             11 => return
             14 => {
@@ -668,7 +668,7 @@ fn cff_load(f: *Font, gid: i64, o: *Outline) {
     cs_close(&c)
 }
 
-// кубическая кривая -> отрезки
+// a cubic curve -> segments
 fn cubic(x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
     l := fabs(x1 - x0) + fabs(y1 - y0) + fabs(x2 - x1) + fabs(y2 - y1) + fabs(x3 - x2) + fabs(y3 - y2)
     var n = @as(i64, l / 3.0) + 1
@@ -690,7 +690,7 @@ fn cubic(x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32)
     }
 }
 
-// контуры CFF в маску: как fill_outline, но кривые кубические
+// CFF outlines into a mask: like fill_outline, but the curves are cubic
 fn fill_cff(o: *Outline, s: f32, bx: f32, by: f32) {
     var st = 0
     for k in 0..o.nc {
@@ -805,7 +805,7 @@ fn glyf_load(f: *Font, gid: i64, o: *Outline, ta: f32, tb: f32, tc: f32, td: f32
         o.nc += nc
         return
     }
-    var p = g + 10                       // составной глиф
+    var p = g + 10                       // a composite glyph
     for {
         fl := b16(f, p)
         sub := b16(f, p + 2)
@@ -821,7 +821,7 @@ fn glyf_load(f: *Font, gid: i64, o: *Outline, ta: f32, tb: f32, tc: f32, td: f32
             ff = s8(f, p + 1)
             p += 2
         }
-        if (fl & 2) == 0 {               // точки-якоря вместо смещения: не поддерживаются
+        if (fl & 2) == 0 {               // anchor points instead of an offset: not supported
             e = 0
             ff = 0
         }
@@ -852,9 +852,9 @@ fn glyf_load(f: *Font, gid: i64, o: *Outline, ta: f32, tb: f32, tc: f32, td: f32
     }
 }
 
-// ---- встроенный шрифт: font_data.tr (base64) -> байты:
-// "SHF1", upem, asc, desc, gap, число глифов; глиф: Δсимвол, ширина, длина контуров; затем контуры:
-// число контуров, точек в каждом, точки: ((zz(Δx) << 1) | на_кривой), zz(Δy). Числа — varint.
+// ---- the built-in font: font_data.tr (base64) -> bytes:
+// "SHF1", upem, asc, desc, gap, glyph count; per glyph: Δcharacter, advance, outline length; then the outlines:
+// contour count, points in each, points: ((zz(Δx) << 1) | on_curve), zz(Δy). Numbers are varints.
 fn varint(d: *u8, p: *i64) -> i64 {
     var v = 0
     var sh = 0
@@ -956,14 +956,14 @@ fn unpack_glyph(f: *Font, gid: i64, o: *Outline) {
     o.nc = nc
 }
 
-// ---- растеризация и кэш
+// ---- rasterization and the cache
 fn qto(tx: *f32, ty: *f32, has: bool, cx: f32, cy: f32, x: f32, y: f32) {
     if has { draw.rs_quad(*tx, *ty, cx, cy, x, y) } else { draw.rs_line(*tx, *ty, x, y) }
     *tx = x
     *ty = y
 }
 
-// контуры o в маску: точка (x, y) шрифта -> (x * s - bx, -y * s - by)
+// outlines o into a mask: font point (x, y) -> (x * s - bx, -y * s - by)
 fn fill_outline(o: *Outline, s: f32, bx: f32, by: f32) {
     var st = 0
     for c in 0..o.nc {
@@ -1013,7 +1013,7 @@ fn fill_outline(o: *Outline, s: f32, bx: f32, by: f32) {
     }
 }
 
-// глиф gid размера size пикселей (растеризуется при первом обращении)
+// glyph gid at size pixels (rasterized on first use)
 pub fn glyph(f: *Font, gid: i64, size: i64) -> *Glyph {
     key := ((gid + 1) << 16) | (size & 0xFFFF)
     mask := f.nslots - 1
@@ -1022,7 +1022,7 @@ pub fn glyph(f: *Font, gid: i64, size: i64) -> *Glyph {
         if f.slots[h].key == key { return &f.slots[h] }
         h = (h + 1) & mask
     }
-    if f.used * 4 >= f.nslots * 3 {      // кэш полон — начинаем заново
+    if f.used * 4 >= f.nslots * 3 {      // the cache is full — start over
         for i in 0..f.nslots { f.slots[i].key = 0 }
         f.used = 0
         h = (key * 2654435761) & mask
@@ -1069,7 +1069,7 @@ pub fn glyph(f: *Font, gid: i64, size: i64) -> *Glyph {
     return g
 }
 
-// ---- текст
+// ---- text
 pub fn ulen(c: u8) -> i64 {
     if c < 0x80 { return 1 }
     if c >= 0xF0 { return 4 }
@@ -1078,7 +1078,7 @@ pub fn ulen(c: u8) -> i64 {
     return 1
 }
 
-// символ UTF-8 с позиции i
+// the UTF-8 character at position i
 pub fn ucp(s: str, i: i64) -> i64 {
     c := @as(i64, s[i])
     l := ulen(s[i])
@@ -1088,13 +1088,13 @@ pub fn ucp(s: str, i: i64) -> i64 {
     return cp
 }
 
-// ---- запасные шрифты
+// ---- fallback fonts
 var fbs: [32]*Font
 var nfb: i64
-pub var no_system: bool                  // true — не искать недостающие символы в шрифтах системы
-var tried: [10]i64                       // сколько системных шрифтов письменности уже открыто
+pub var no_system: bool                  // true — don't look up missing characters in system fonts
+var tried: [10]i64                       // how many system fonts of each script are already open
 
-// шрифт f — запасной: из него берутся символы, которых нет в основном
+// font f is a fallback: characters missing from the main font are taken from it
 pub fn add_fallback(f: *Font) {
     if f != null && nfb < 32 {
         fbs[nfb] = f
@@ -1102,7 +1102,7 @@ pub fn add_fallback(f: *Font) {
     }
 }
 
-// шрифт и глиф для символа cp: свой шрифт, иначе запасные, иначе знак замены
+// the font and glyph for character cp: its own font, else the fallbacks, else the replacement character
 fn pick(f: *Font, cp: i64, gid: *i64) -> *Font {
     var g = index(f, cp)
     if g != 0 || cp <= 32 || cp == 0xA0 {
@@ -1125,7 +1125,7 @@ fn pick(f: *Font, cp: i64, gid: *i64) -> *Font {
     return f
 }
 
-fn script(cp: i64) -> i64 {              // группа письменностей для поиска шрифта
+fn script(cp: i64) -> i64 {              // a script group for the font lookup
     if (cp >= 0x600 && cp <= 0x6FF) || (cp >= 0x750 && cp <= 0x77F) || (cp >= 0x8A0 && cp <= 0x8FF) || (cp >= 0xFB50 && cp <= 0xFDFF) || (cp >= 0xFE70 && cp <= 0xFEFF) { return 1 }
     if (cp >= 0x590 && cp <= 0x5FF) || (cp >= 0xFB1D && cp <= 0xFB4F) { return 2 }
     if cp >= 0x900 && cp <= 0x97F { return 3 }
@@ -1139,7 +1139,7 @@ fn script(cp: i64) -> i64 {              // группа письменност�
     return 0
 }
 
-fn cands(grp: i64) -> str {              // файлы шрифтов для группы, через '|'
+fn cands(grp: i64) -> str {              // font files for a group, separated by '|'
     if @os("win") {
         switch grp {
             1, 2 => return "segoeui.ttf|arial.ttf|tahoma.ttf"
@@ -1168,7 +1168,7 @@ fn cands(grp: i64) -> str {              // файлы шрифтов для г�
 
 const DIRS = "/usr/share/fonts/noto/|/usr/share/fonts/truetype/noto/|/usr/share/fonts/google-noto/|/usr/share/fonts/noto-cjk/|/usr/share/fonts/opentype/noto/|/usr/share/fonts/google-noto-cjk/|/usr/share/fonts/google-noto-sans-cjk-fonts/|/usr/share/fonts/TTF/|/usr/share/fonts/truetype/dejavu/|/usr/share/fonts/dejavu/|/usr/share/fonts/dejavu-sans-fonts/|/usr/share/fonts/wenquanyi/wqy-microhei/|/usr/share/fonts/truetype/wqy/|/usr/share/fonts/truetype/droid/|/usr/local/share/fonts/"
 
-fn part(s: str, k: i64) -> str {         // k-й кусок s между '|'
+fn part(s: str, k: i64) -> str {         // the k-th piece of s between '|'
     var i = 0
     var st = 0
     n := @as(i64, s.span)
@@ -1207,7 +1207,7 @@ fn open_sys(name: str) -> *Font {
     return null
 }
 
-// найти символ cp в шрифтах системы (каждый файл открывается не больше одного раза)
+// find character cp in system fonts (each file is opened at most once)
 fn sys_font(cp: i64, gid: *i64) -> *Font {
     grp := script(cp)
     list := cands(grp)
@@ -1238,11 +1238,11 @@ fn gid_of(f: *Font, cp: i64) -> i64 {
     return g
 }
 
-// высота строки и подъём над базовой линией, пиксели
+// line height and ascent above the baseline, pixels
 pub fn line_h(f: *Font, size: i64) -> i64 { return ((f.asc - f.desc + f.gap) * size + f.upem - 1) / f.upem }
 pub fn ascent(f: *Font, size: i64) -> i64 { return (f.asc * size + f.upem / 2) / f.upem }
 
-// ширина строки в пикселях
+// string width in pixels
 pub fn width(f: *Font, size: i64, s: str) -> i64 {
     var pen = 0
     var i = 0
@@ -1257,7 +1257,7 @@ pub fn width(f: *Font, size: i64, s: str) -> i64 {
     return (pen + 63) / 64
 }
 
-// сколько байт s помещается в ширину w (по границам символов)
+// how many bytes of s fit into width w (on character boundaries)
 pub fn fit(f: *Font, size: i64, s: str, w: i64) -> i64 {
     var pen = 0
     var i = 0
@@ -1274,7 +1274,7 @@ pub fn fit(f: *Font, size: i64, s: str, w: i64) -> i64 {
     return n
 }
 
-// строка s: x — начало, y — верх строки -> ширина
+// string s: x — the start, y — the top of the line -> width
 pub fn text(c: *draw.Canvas, f: *Font, size: i64, x: i64, y: i64, col: u32, a: i64, s: str) -> i64 {
     base := y + ascent(f, size)
     var pen = x * 64

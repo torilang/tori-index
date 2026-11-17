@@ -1,38 +1,38 @@
-# 5. Картинки
+# 5. Images
 
-## Загрузка
+## Loading
 
 ```tori
 img := shoji.load_image("photo.png")
-if img == null { say("не открылась: ", shoji.image_error()) }
+if img == null { say("couldn't open it: ", shoji.image_error()) }
 ```
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `shoji.load_image(путь) -> *Image` | картинка PNG или `null` |
-| `shoji.image_error() -> str` | почему последняя загрузка не удалась: «нет файла», «это не PNG», «испорченные данные»… |
-| `img.w`, `img.h` | размер в пикселях |
-| `img.px` | пиксели `0xAARRGGBB`, `w * h` штук построчно |
+| `shoji.load_image(path) -> *Image` | a PNG image or `null` |
+| `shoji.image_error() -> str` | why the last load failed: "no such file", "not a PNG", "corrupted data"… |
+| `img.w`, `img.h` | the size in pixels |
+| `img.px` | the pixels, `0xAARRGGBB`, `w * h` of them row by row |
 
-Поддерживаются PNG любого типа цвета (серый, цветной, с палитрой, с прозрачностью) и глубины от 1 до 16 бит. Чересстрочные PNG — нет.
+PNG of any color type (gray, color, paletted, with transparency) and depth from 1 to 16 bits is supported. Interlaced PNG is not.
 
-Картинку загружают один раз, до цикла кадров, а не в каждом кадре.
+Load an image once, before the frame loop, not every frame.
 
-## В раскладке
+## In the layout
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.image(img, h, радиус)` | картинка высотой `h`; ширина — по пропорциям, но не шире колонки (тогда меньше и высота). Углы скруглены радиусом |
-| `ui.image_button(img, s) -> bool` | кнопка с картинкой и подписью; `s == ""` — квадратная кнопка с одной картинкой |
+| `ui.image(img, h, radius)` | an image of height `h`; the width follows the aspect ratio but is no wider than the column (then the height shrinks too). The corners are rounded with the radius |
+| `ui.image_button(img, s) -> bool` | a button with an image and a caption; `s == ""` — a square button with just the image |
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Картинки", 420, 360)
+    ui := shoji.open("Images", 420, 360)
     photo := shoji.load_image("photo.png")
     for ui.frame() {
-        ui.panel("Фото", 20, 20, 380, 320)
+        ui.panel("Photo", 20, 20, 380, 320)
         ui.image(photo, 180, 16)
         ui.row(3)
         ui.image(photo, 60, 8)
@@ -43,18 +43,18 @@ fn main() {
 }
 ```
 
-`null` вместо картинки ничего не рисует, поэтому программа не упадёт, если файла нет.
+`null` instead of an image draws nothing, so the program won't crash if the file is missing.
 
-## Где угодно
+## Anywhere
 
-`ui.picture(img, x, y, w, h, радиус)` растягивает картинку в прямоугольник `w`×`h` (логические пиксели, от верха страницы) — например, логотип в шапке:
+`ui.picture(img, x, y, w, h, radius)` stretches an image into a `w`×`h` rectangle (logical pixels, from the top of the page) — a logo in the header, for example:
 
 ```tori
 ui.picture(logo, 24, 18, 44, 44, 0)
 ```
 
-## Качество и скорость
+## Quality and speed
 
-Картинка масштабируется билинейно, с учётом прозрачности, и готовая копия нужного размера запоминается (до 64 копий). Поэтому одна и та же картинка одного размера в каждом кадре стоит как простое копирование пикселей. Новый размер — например, после смены масштаба — считается один раз.
+An image is scaled bilinearly, respecting transparency, and the finished copy of the needed size is remembered (up to 64 copies). So the same image at the same size costs a plain pixel copy each frame. A new size — after a scale change, for example — is computed once.
 
-Дальше: [Масштаб →](06-scale.md)
+Next: [Scaling →](06-scale.md)

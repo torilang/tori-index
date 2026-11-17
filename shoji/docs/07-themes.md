@@ -1,70 +1,70 @@
-# 7. Темы
+# 7. Themes
 
-Вид интерфейса задаёт тема — `ui.th`, структура `Theme`. Её можно менять когда угодно, хоть посреди кадра: следующие виджеты нарисуются по-новому.
+The look of the interface is set by the theme — `ui.th`, a `Theme` struct. You can change it at any time, even in the middle of a frame: the following widgets will be drawn the new way.
 
-## Готовые темы
+## Ready-made themes
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.dark()` | тёмная тема (она по умолчанию) |
-| `ui.light()` | светлая тема; цвет акцента сохраняется |
-| `ui.accent(0xRRGGBB)` | цвет акцента: главные кнопки, отмеченные флажки, ползунки, рамка поля в фокусе |
+| `ui.dark()` | the dark theme (the default) |
+| `ui.light()` | the light theme; the accent color is kept |
+| `ui.accent(0xRRGGBB)` | the accent color: main buttons, checked boxes, sliders, the border of a focused field |
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Темы", 380, 220)
+    ui := shoji.open("Themes", 380, 220)
     var theme = 0
     for ui.frame() {
-        ui.panel("Вид", 20, 20, 340, 180)
-        if ui.tabs(&theme, "Тёмная|Светлая") {
+        ui.panel("Look", 20, 20, 340, 180)
+        if ui.tabs(&theme, "Dark|Light") {
             if theme == 0 { ui.dark() } else { ui.light() }
             ui.accent(0x2F8FE0)
         }
-        ui.primary("Кнопка цветом акцента")
+        ui.primary("An accent-colored button")
         ui.end()
     }
 }
 ```
 
-`ui.dark()` сбрасывает акцент на красный по умолчанию, поэтому свой акцент после неё ставят заново.
+`ui.dark()` resets the accent to the default red, so set your own accent again after it.
 
-## Поля темы
+## Theme fields
 
-Цвета — `0xRRGGBB`:
+Colors are `0xRRGGBB`:
 
-| Поле | Где |
+| Field | Where |
 | :--- | :--- |
-| `bg` | фон окна |
-| `panel` | фон панелей и выпадающих списков |
-| `border` | рамки, дорожка выключенного переключателя, линии |
-| `text` | основной текст |
-| `dim` | подписи `note`, подсказки в полях, значения ползунков |
-| `accent` | акцент |
-| `on_accent` | текст и галочки на акценте |
-| `button` | фон кнопок и выбранной вкладки |
-| `hover` | вариант под мышью в выпадающем списке |
-| `press` | зарезервировано: нажатые кнопки shoji сама затемняет от их цвета |
-| `field` | фон полей ввода, дорожек ползунков и вкладок |
+| `bg` | the window background |
+| `panel` | the background of panels and dropdown lists |
+| `border` | borders, the track of a toggle that's off, lines |
+| `text` | the main text |
+| `dim` | `note` captions, field hints, slider values |
+| `accent` | the accent |
+| `on_accent` | text and check marks on the accent |
+| `button` | the background of buttons and the selected tab |
+| `hover` | the option under the mouse in a dropdown list |
+| `press` | reserved: shoji darkens pressed buttons from their own color |
+| `field` | the background of text fields, slider tracks and tabs |
 
-Размеры — в логических пикселях:
+Sizes are in logical pixels:
 
-| Поле | Что задаёт | Тёмная и светлая |
+| Field | What it sets | Dark and light |
 | :--- | :--- | :--- |
-| `radius` | радиус скруглений | 10 |
-| `size` | размер основного текста | 16 |
-| `title` | размер заголовков | 22 |
-| `pad` | поля внутри панели | 16 |
-| `gap` | отступ между виджетами | 10 |
-| `h` | высота кнопок, полей, списков | 36 |
+| `radius` | the corner radius | 10 |
+| `size` | the main text size | 16 |
+| `title` | the heading size | 22 |
+| `pad` | the padding inside a panel | 16 |
+| `gap` | the gap between widgets | 10 |
+| `h` | the height of buttons, fields, lists | 36 |
 
 ```tori
-ui.th.radius = 4            // почти квадратные углы
-ui.th.h = 44                // кнопки повыше
-ui.th.bg = 0x0E1A12         // свой фон
+ui.th.radius = 4            // almost square corners
+ui.th.h = 44                // taller buttons
+ui.th.bg = 0x0E1A12         // your own background
 ```
 
-Готовые темы перезаписывают все поля, поэтому свои правки делают после `ui.dark()` или `ui.light()`.
+The ready-made themes overwrite every field, so make your own changes after `ui.dark()` or `ui.light()`.
 
-Дальше: [Рисование →](08-drawing.md)
+Next: [Drawing →](08-drawing.md)

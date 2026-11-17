@@ -1,78 +1,78 @@
-# 8. Рисование
+# 8. Drawing
 
-## Простое: в логических координатах
+## The simple way: in logical coordinates
 
-Эти вызовы рисуют прямо сейчас, поверх того, что уже нарисовано в кадре. Координаты — логические, от верха страницы, как у панелей:
+These calls draw right away, on top of whatever is already drawn in the frame. The coordinates are logical, from the top of the page, just like for panels:
 
-| Вызов | Что рисует |
+| Call | What it draws |
 | :--- | :--- |
-| `ui.rect(x, y, w, h, радиус, цвет)` | залитый прямоугольник со скруглёнными углами (сглаженными) |
-| `ui.text_at(x, y, s, шрифт, размер, цвет) -> ширина` | строку; `y` — верх строки, `шрифт` — `null` для основного. Возвращает ширину в логических пикселях |
-| `ui.picture(img, x, y, w, h, радиус)` | картинку, растянутую в прямоугольник |
+| `ui.rect(x, y, w, h, radius, color)` | a filled rectangle with (anti-aliased) rounded corners |
+| `ui.text_at(x, y, s, font, size, color) -> width` | a line of text; `y` is the top of the line, `font` — `null` for the main one. Returns the width in logical pixels |
+| `ui.picture(img, x, y, w, h, radius)` | an image stretched into a rectangle |
 
-Внутри панели рисунок обрезается по её краю, снаружи — по окну.
+Inside a panel the drawing is clipped to its edge, outside — to the window.
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Рисунок", 400, 240)
+    ui := shoji.open("Drawing", 400, 240)
     for ui.frame() {
         th := &ui.th
         ui.rect(20, 20, 360, 200, 16, th.panel)
-        ui.rect(40, 40, 60, 60, 30, 0xE8452C)            // радиус в половину — круг
-        w := ui.text_at(120, 50, "Привет", null, 28, th.text)
-        ui.text_at(120 + w + 8, 62, "мир", null, 16, th.dim)
+        ui.rect(40, 40, 60, 60, 30, 0xE8452C)            // radius of half the size — a circle
+        w := ui.text_at(120, 50, "Hello", null, 28, th.text)
+        ui.text_at(120 + w + 8, 62, "world", null, 16, th.dim)
     }
 }
 ```
 
-## Холст и модуль `draw`
+## The canvas and the `draw` module
 
-Для всего остального есть холст окна и модуль `shoji/draw`:
+For everything else there's the window canvas and the `shoji/draw` module:
 
 ```tori
 use shoji
 use shoji/draw
 ```
 
-`ui.canvas()` возвращает `*draw.Canvas`: пиксели окна `px` (`0xRRGGBB`), размер `w`, `h` и прямоугольник обрезки. Функции `draw` работают в **пикселях экрана**: логические длины переводит `ui.px(v)`, а логическую `y` страницы — `ui.px(y - ui.scroll)`.
+`ui.canvas()` returns a `*draw.Canvas`: the window pixels `px` (`0xRRGGBB`), the size `w`, `h` and the clip rectangle. The `draw` functions work in **screen pixels**: `ui.px(v)` converts logical lengths, and a logical page `y` becomes `ui.px(y - ui.scroll)`.
 
-| Функция | Что делает |
+| Function | What it does |
 | :--- | :--- |
-| `draw.fill(c, x, y, w, h, цвет)` | залить прямоугольник |
-| `draw.fill_a(c, x, y, w, h, цвет, a)` | то же с непрозрачностью `a` от 0 до 255 |
-| `draw.dot(c, x, y, цвет, a)` | одна точка |
-| `draw.rrect(c, x, y, w, h, радиус, цвет, a)` | скруглённый прямоугольник со сглаженными углами |
-| `draw.rrect_box(c, x, y, w, h, радиус, заливка, рамка, t)` | скруглённый прямоугольник с рамкой толщиной `t` |
-| `draw.shadow(c, x, y, w, h, радиус, размер)` | мягкая тень вокруг прямоугольника; рисуется до самого прямоугольника |
-| `draw.line(c, x0, y0, x1, y1, t, цвет)` | отрезок толщиной `t` со сглаживанием (координаты — `f32`) |
-| `draw.poly(c, xs, ys, n, цвет, a)` | залитый многоугольник со сглаживанием: `n` вершин, `xs`, `ys` — указатели на `f32` |
-| `draw.image(c, img, x, y, w, h, радиус, a)` | картинка в прямоугольник |
-| `draw.mask(c, x, y, m, mw, mh, цвет, a)` | маска прозрачности `mw`×`mh` (байты 0–255) одним цветом |
-| `draw.clip(c, x, y, w, h)` | сузить обрезку (шире текущей она не станет) |
-| `draw.noclip(c)` | снять обрезку: всё окно |
-| `draw.mix(фон, цвет, a)` | смесь цветов: `a`/255 от `цвет` |
-| `draw.rgb(r, g, b)` | цвет из каналов 0–255 |
+| `draw.fill(c, x, y, w, h, color)` | fill a rectangle |
+| `draw.fill_a(c, x, y, w, h, color, a)` | the same with opacity `a` from 0 to 255 |
+| `draw.dot(c, x, y, color, a)` | a single pixel |
+| `draw.rrect(c, x, y, w, h, radius, color, a)` | a rounded rectangle with anti-aliased corners |
+| `draw.rrect_box(c, x, y, w, h, radius, fill, border, t)` | a rounded rectangle with a border of thickness `t` |
+| `draw.shadow(c, x, y, w, h, radius, size)` | a soft shadow around a rectangle; drawn before the rectangle itself |
+| `draw.line(c, x0, y0, x1, y1, t, color)` | an anti-aliased segment of thickness `t` (the coordinates are `f32`) |
+| `draw.poly(c, xs, ys, n, color, a)` | a filled anti-aliased polygon: `n` vertices, `xs`, `ys` are pointers to `f32` |
+| `draw.image(c, img, x, y, w, h, radius, a)` | an image into a rectangle |
+| `draw.mask(c, x, y, m, mw, mh, color, a)` | an `mw`×`mh` opacity mask (bytes 0–255) in one color |
+| `draw.clip(c, x, y, w, h)` | narrow the clip (it never grows wider than the current one) |
+| `draw.noclip(c)` | remove the clip: the whole window |
+| `draw.mix(bg, color, a)` | a color mix: `a`/255 of `color` |
+| `draw.rgb(r, g, b)` | a color from 0–255 channels |
 
-Свой виджет — это `ui.next` (место в раскладке) плюс рисование на холсте:
+A widget of your own is `ui.next` (room in the layout) plus drawing on the canvas:
 
 ```tori
 use shoji
 use shoji/draw
 
 fn main() {
-    ui := shoji.open("Звезда", 360, 300)
+    ui := shoji.open("Star", 360, 300)
     var xs: [10]f32
     var ys: [10]f32
     for ui.frame() {
-        ui.panel("Свой виджет", 20, 20, 320, 260)
-        r := ui.next(180)                                  // логический прямоугольник
+        ui.panel("Your own widget", 20, 20, 320, 260)
+        r := ui.next(180)                                  // a logical rectangle
         cx := @as(f32, ui.px(r.x + r.w / 2))
         cy := @as(f32, ui.px(r.y + r.h / 2 - ui.scroll))
         big := @as(f32, ui.px(80))
         small := @as(f32, ui.px(34))
-        for i in 0..10 {                                   // вершины звезды
+        for i in 0..10 {                                   // the star's vertices
             var k = small
             if i % 2 == 0 { k = big }
             a := @as(f32, i) * 0.6283185 - 1.5707963
@@ -84,7 +84,7 @@ fn main() {
     }
 }
 
-// синус и косинус рядом Тейлора: для вершин хватит
+// sine and cosine by a Taylor series: good enough for the vertices
 fn sin(x: f32) -> f32 {
     var v = x
     for v > 3.1415927 { v -= 6.2831853 }
@@ -95,18 +95,18 @@ fn sin(x: f32) -> f32 {
 fn cos(x: f32) -> f32 { return sin(x + 1.5707963) }
 ```
 
-## Текст на холсте
+## Text on the canvas
 
-Модуль `shoji/font` рисует текст в пикселях экрана:
+The `shoji/font` module draws text in screen pixels:
 
-| Функция | Что делает |
+| Function | What it does |
 | :--- | :--- |
-| `font.text(c, f, размер, x, y, цвет, a, s) -> ширина` | строку; `y` — верх строки |
-| `font.width(f, размер, s)` | ширина строки |
-| `font.line_h(f, размер)` | высота строки |
-| `font.ascent(f, размер)` | от верха строки до базовой линии |
-| `font.fit(f, размер, s, w)` | сколько байт `s` помещается в ширину `w` (по границам символов) |
+| `font.text(c, f, size, x, y, color, a, s) -> width` | a line of text; `y` is the top of the line |
+| `font.width(f, size, s)` | the string width |
+| `font.line_h(f, size)` | the line height |
+| `font.ascent(f, size)` | from the top of the line to the baseline |
+| `font.fit(f, size, s, w)` | how many bytes of `s` fit into width `w` (on character boundaries) |
 
-Размер — в пикселях экрана: `ui.px(16)` для логического 16.
+The size is in screen pixels: `ui.px(16)` for a logical 16.
 
-Дальше: [Справочник →](09-reference.md)
+Next: [Reference →](09-reference.md)

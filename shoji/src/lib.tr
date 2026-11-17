@@ -1,17 +1,17 @@
-// shoji — интерфейсы на Tori: панели, кнопки, флажки, переключатели, ползунки, списки, поля ввода,
-// вкладки, текст векторными шрифтами, картинки PNG, скругления и тени. Linux и Windows.
+// shoji — user interfaces in Tori: panels, buttons, checkboxes, toggles, sliders, dropdowns, text fields,
+// tabs, text in vector fonts, PNG images, rounded corners and shadows. Linux and Windows.
 //
-// Устроен как immediate mode: каждый кадр программа заново «описывает» окно, а виджет сразу
-// отвечает, что с ним сделали. Колбэков нет.
+// It's immediate mode: every frame the program "describes" the window anew, and a widget answers
+// right away what was done to it. No callbacks.
 //
-// Координаты и размеры — в логических пикселях: на экране они умножаются на масштаб
-// (DPI системы × зум пользователя: Ctrl + колесо, Ctrl + = / - / 0). Окно растягивается:
+// Coordinates and sizes are in logical pixels: on screen they are multiplied by the scale
+// (system DPI × the user's zoom: Ctrl + wheel, Ctrl + = / - / 0). The window is resizable:
 //
-//     ui := shoji.open("Привет", 640, 480)
+//     ui := shoji.open("Hello", 640, 480)
 //     var n = 0
 //     for ui.frame() {
-//         ui.panel("Счётчик", 20, 20, 300, 200)
-//         if ui.button("Ещё") { n += 1 }
+//         ui.panel("Counter", 20, 20, 300, 200)
+//         if ui.button("More") { n += 1 }
 //         ui.label(shoji.num(n))
 //         ui.end()
 //     }
@@ -21,26 +21,26 @@ use font
 use png
 
 pub struct Theme {
-    bg: u32                              // фон окна
+    bg: u32                              // window background
     panel: u32
     border: u32
     text: u32
-    dim: u32                             // второстепенный текст
+    dim: u32                             // secondary text
     accent: u32
-    on_accent: u32                       // текст на акценте
+    on_accent: u32                       // text on the accent
     button: u32
     hover: u32
     press: u32
-    field: u32                           // поля ввода, дорожки ползунков
-    radius: i64                          // размеры — в логических пикселях
-    size: i64                            // размер текста
-    title: i64                           // размер заголовков
-    pad: i64                             // поля внутри панели
-    gap: i64                             // между виджетами
-    h: i64                               // высота кнопок и полей
+    field: u32                           // text fields, slider tracks
+    radius: i64                          // sizes are in logical pixels
+    size: i64                            // text size
+    title: i64                           // heading size
+    pad: i64                             // padding inside a panel
+    gap: i64                             // between widgets
+    h: i64                               // height of buttons and fields
 }
 
-// прямоугольник
+// a rectangle
 pub struct Rect {
     x: i64
     y: i64
@@ -61,7 +61,7 @@ struct Lay {
     cy1: i64
 }
 
-// строка для поля ввода
+// a string for a text field
 pub struct Text {
     b: [256]u8
     n: i64
@@ -73,37 +73,37 @@ pub struct Ui {
     th: Theme
     font: *font.Font
     bold: *font.Font
-    mx: i64                              // мышь
+    mx: i64                              // mouse
     my: i64
     down: bool
-    pressed: bool                        // нажали в этом кадре
-    released: bool                       // отпустили в этом кадре
+    pressed: bool                        // pressed during this frame
+    released: bool                       // released during this frame
     wheel: i64
-    id: i64                              // номер виджета в кадре
-    active: i64                          // зажат мышью
-    focus: i64                           // поле ввода с курсором
-    cur: i64                             // курсор в нём (байт)
-    blocked: bool                        // мышь над всплывающим списком
+    id: i64                              // widget number within the frame
+    active: i64                          // held down by the mouse
+    focus: i64                           // the text field with the cursor
+    cur: i64                             // the cursor in it (byte)
+    blocked: bool                        // the mouse is over a popup list
     lay: Lay
     st: [16]Lay
     sp: i64
-    pop: i64                             // открытый список: id | 0
+    pop: i64                             // the open list: id | 0
     pop_r: Rect
     pop_items: str
     pop_v: *i64
-    pop_pick: i64                        // выбран в этом кадре: номер | -1
+    pop_pick: i64                        // picked during this frame: index | -1
     started: bool
     t0: i64
-    m: Theme                             // тема в пикселях экрана (th × масштаб)
-    sc: i64                              // масштаб, %: DPI / 96 × zoom
-    zoom: i64                            // зум пользователя, % (100 — как задумано)
-    dpi: i64                             // DPI экрана (96 — 100 %)
-    page: i64                            // высота страницы для прокрутки (логические px) | 0
-    scroll: i64                          // насколько страница прокручена
-    sb_grab: i64                         // тянут полосу прокрутки: смещение мыши в ней | -1
+    m: Theme                             // the theme in screen pixels (th × scale)
+    sc: i64                              // scale, %: DPI / 96 × zoom
+    zoom: i64                            // the user's zoom, % (100 — as designed)
+    dpi: i64                             // screen DPI (96 — 100 %)
+    page: i64                            // page height for scrolling (logical px) | 0
+    scroll: i64                          // how far the page is scrolled
+    sb_grab: i64                         // the scrollbar is being dragged: mouse offset in it | -1
 }
 
-// ---- кольцевой буфер для коротких строк: num, cat
+// ---- a ring buffer for short strings: num, cat
 var ring: *u8
 var rp: i64
 
@@ -115,7 +115,7 @@ fn take(n: i64) -> *u8 {
     return p
 }
 
-// число -> строка (живёт несколько кадров)
+// number -> string (lives for a few frames)
 pub fn num(v: i64) -> str {
     var tmp: [24]u8
     var n = 0
@@ -136,7 +136,7 @@ pub fn num(v: i64) -> str {
     return p[0..n]
 }
 
-// склейка двух строк (живёт несколько кадров)
+// joins two strings (lives for a few frames)
 pub fn cat(a: str, b: str) -> str {
     na := @as(i64, a.span)
     nb := @as(i64, b.span)
@@ -161,24 +161,24 @@ pub fn Text.set(t: *Text, s: str) {
 
 pub fn Text.get(t: *Text) -> str { return t.b[0..t.n] }
 
-// ---- шрифты и картинки
-// шрифт .ttf, .otf или .ttc из файла | null
+// ---- fonts and images
+// a .ttf, .otf or .ttc font from a file | null
 pub fn load_font(path: str) -> *font.Font { return font.load_ttf(sys.map_file(path)) }
 
-// запасной шрифт: из него берутся символы, которых нет в основном
+// a fallback font: characters missing from the main one are taken from it
 pub fn fallback(f: *font.Font) { font.add_fallback(f) }
 
-// искать недостающие символы в шрифтах системы (по умолчанию — да)
+// look up missing characters in system fonts (yes by default)
 pub fn system_fonts(on: bool) { font.no_system = !on }
 
-// встроенный шрифт (Noto Sans)
+// the built-in font (Noto Sans)
 pub fn default_font() -> *font.Font { return font.builtin() }
 
-// картинка .png из файла | null (почему — image_error())
+// a .png image from a file | null (why — image_error())
 pub fn load_image(path: str) -> *draw.Image {
     d := sys.read_file(path)
     if d.span == 0 {
-        png.err = "нет файла"
+        png.err = "no such file"
         return null
     }
     return png.decode_png(d)
@@ -186,8 +186,8 @@ pub fn load_image(path: str) -> *draw.Image {
 
 pub fn image_error() -> str { return png.err }
 
-// ---- окно
-// окно w×h логических пикселей (при масштабе 150 % оно в 1,5 раза больше), растягивается
+// ---- the window
+// a window of w×h logical pixels (at 150 % scale it's 1.5 times larger), resizable
 pub fn open(title: str, w: i64, h: i64) -> *Ui {
     dpi := window_dpi()
     win := window(title, w * dpi / 96, h * dpi / 96)
@@ -210,7 +210,7 @@ pub fn attach(win: *Window) -> *Ui {
     return u
 }
 
-// ---- масштаб: логические пиксели -> пиксели экрана
+// ---- scale: logical pixels -> screen pixels
 fn Ui.rescale(u: *Ui) {
     if u.zoom < 50 { u.zoom = 50 }
     if u.zoom > 400 { u.zoom = 400 }
@@ -229,26 +229,26 @@ fn Ui.dp(u: *Ui, v: i64) -> i64 {
     if v < 0 { return -((-v * u.sc + 50) / 100) }
     return (v * u.sc + 50) / 100
 }
-fn Ui.lg(u: *Ui, v: i64) -> i64 { return v * 100 / u.sc }       // пиксели экрана -> логические
+fn Ui.lg(u: *Ui, v: i64) -> i64 { return v * 100 / u.sc }       // screen pixels -> logical
 fn Ui.ox(u: *Ui, x: i64) -> i64 { return u.dp(x) }
 fn Ui.oy(u: *Ui, y: i64) -> i64 { return u.dp(y - u.scroll) }
-fn Ui.box(u: *Ui, x: i64, y: i64, w: i64, h: i64) -> Rect {   // логический прямоугольник -> экранный
+fn Ui.box(u: *Ui, x: i64, y: i64, w: i64, h: i64) -> Rect {   // logical rectangle -> screen rectangle
     x0 := u.ox(x)
     y0 := u.oy(y)
     return Rect { x: x0, y: y0, w: u.ox(x + w) - x0, h: u.oy(y + h) - y0 }
 }
 fn Ui.fk(u: *Ui) -> f32 { return @as(f32, u.sc) / 100.0 }
 
-pub fn Ui.px(u: *Ui, v: i64) -> i64 { return u.dp(v) }          // для рисования на canvas()
-pub fn Ui.scale(u: *Ui) -> i64 { return u.sc }                    // масштаб, %
+pub fn Ui.px(u: *Ui, v: i64) -> i64 { return u.dp(v) }          // for drawing on canvas()
+pub fn Ui.scale(u: *Ui) -> i64 { return u.sc }                    // scale, %
 pub fn Ui.set_zoom(u: *Ui, pct: i64) {
     u.zoom = pct
     u.rescale()
 }
-pub fn Ui.width(u: *Ui) -> i64 { return u.lg(u.win.w) }           // окно в логических пикселях
+pub fn Ui.width(u: *Ui) -> i64 { return u.lg(u.win.w) }           // the window in logical pixels
 pub fn Ui.height(u: *Ui) -> i64 { return u.lg(u.win.h) }
 
-// страница высотой h: если она выше окна, её листают колесом и полосой справа
+// a page of height h: if it's taller than the window, it's scrolled with the wheel and the bar on the right
 pub fn Ui.page_height(u: *Ui, h: i64) { u.page = h }
 
 pub fn Ui.dark(u: *Ui) {
@@ -277,9 +277,9 @@ pub fn Ui.mouse_x(u: *Ui) -> i64 { return u.lg(u.mx) }
 pub fn Ui.mouse_y(u: *Ui) -> i64 { return u.lg(u.my) + u.scroll }
 pub fn Ui.key(u: *Ui, k: i64) -> bool { return k >= 0 && k < 256 && u.win.hit[k] }
 pub fn Ui.held(u: *Ui, k: i64) -> bool { return k >= 0 && k < 256 && u.win.down[k] }
-pub fn Ui.time(u: *Ui) -> i64 { return sys.ms() - u.t0 }    // мс с открытия окна
+pub fn Ui.time(u: *Ui) -> i64 { return sys.ms() - u.t0 }    // ms since the window opened
 
-// один кадр: дорисовать прошлый, показать, разобрать ввод, начать новый. false — окно закрыли
+// one frame: finish drawing the last one, show it, process input, start a new one. false — the window was closed
 pub fn Ui.frame(u: *Ui) -> bool {
     if u.started { u.finish() }
     frame()
@@ -288,11 +288,11 @@ pub fn Ui.frame(u: *Ui) -> bool {
     return true
 }
 
-// начало кадра (если окна ведёшь сам через frame())
+// start of a frame (if you drive the windows yourself through frame())
 pub fn Ui.begin(u: *Ui) {
     u.started = true
     w := u.win
-    u.c.px = w.px                        // окно могли растянуть
+    u.c.px = w.px                        // the window may have been resized
     u.c.w = w.w
     u.c.h = w.h
     u.mx = w.mx
@@ -304,7 +304,7 @@ pub fn Ui.begin(u: *Ui) {
     u.wheel = w.wheel
     u.id = 0
     u.pop_pick = -1
-    if w.down[KEY_CTRL] {                // зум
+    if w.down[KEY_CTRL] {                // zoom
         var z = u.zoom
         if w.hit['='] { z += 10 }
         if w.hit['-'] { z -= 10 }
@@ -316,9 +316,9 @@ pub fn Ui.begin(u: *Ui) {
             u.zoom = z
         }
     }
-    u.rescale()                          // и тему могли поменять
+    u.rescale()                          // and the theme may have changed
     u.blocked = u.pop != 0 && inside(u.pop_r, u.mx, u.my)
-    if u.pop != 0 && u.pressed && u.blocked {    // выбор в открытом списке
+    if u.pop != 0 && u.pressed && u.blocked {    // a pick in the open list
         u.pop_pick = (u.my - u.pop_r.y - u.dp(4)) / u.m.h
     }
     u.scrolling()
@@ -328,7 +328,7 @@ pub fn Ui.begin(u: *Ui) {
     u.lay = Lay { x: u.m.pad, y: u.oy(u.th.pad), w: u.c.w - 2 * u.m.pad, cols: 1, cx1: u.c.w, cy1: u.c.h }
 }
 
-// прокрутка страницы: колесо, PgUp/PgDn, полоса справа
+// page scrolling: wheel, PgUp/PgDn, the bar on the right
 fn Ui.max_scroll(u: *Ui) -> i64 { return draw.imax(0, u.page - u.lg(u.win.h)) }
 
 fn Ui.thumb(u: *Ui) -> Rect {
@@ -368,7 +368,7 @@ fn Ui.scrolling(u: *Ui) {
     if u.scroll != old { u.pop = 0 }
 }
 
-// конец кадра: всплывающий список поверх всего
+// end of a frame: the popup list on top of everything
 pub fn Ui.finish(u: *Ui) {
     if u.max_scroll() > 0 {
         draw.noclip(u.c)
@@ -384,7 +384,7 @@ pub fn Ui.finish(u: *Ui) {
 
 fn inside(r: Rect, x: i64, y: i64) -> bool { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h }
 
-// ---- раскладка: панели, ряды, отступы
+// ---- layout: panels, rows, spacing
 fn Ui.push(u: *Ui) {
     if u.sp < 16 {
         u.st[u.sp] = u.lay
@@ -392,13 +392,13 @@ fn Ui.push(u: *Ui) {
     }
 }
 
-// следующее место под свой виджет высоты h (логические пиксели, как и ответ)
+// the next place for your own widget of height h (logical pixels, as is the result)
 pub fn Ui.next(u: *Ui, h: i64) -> Rect {
     r := u.slot(u.dp(h))
     return Rect { x: u.lg(r.x), y: u.lg(r.y) + u.scroll, w: u.lg(r.w), h: h }
 }
 
-// то же в пикселях экрана
+// the same in screen pixels
 fn Ui.slot(u: *Ui, h: i64) -> Rect {
     l := &u.lay
     if l.cols > 1 {
@@ -419,7 +419,7 @@ fn Ui.slot(u: *Ui, h: i64) -> Rect {
     return r
 }
 
-// следующие n виджетов — в ряд, поровну по ширине
+// the next n widgets go in a row, sharing the width equally
 pub fn Ui.row(u: *Ui, n: i64) {
     l := &u.lay
     if l.cols > 1 && l.col > 0 { l.y += l.rowh + u.m.gap }
@@ -430,7 +430,7 @@ pub fn Ui.row(u: *Ui, n: i64) {
 
 pub fn Ui.space(u: *Ui, h: i64) { u.lay.y += u.dp(h) }
 
-// панель с заголовком (title может быть ""); внутри — колонка виджетов до end()
+// a panel with a title (title may be ""); inside — a column of widgets until end()
 pub fn Ui.panel(u: *Ui, title: str, lx: i64, ly: i64, lw: i64, lh: i64) {
     th := &u.m
     b := u.box(lx, ly, lw, lh)
@@ -450,7 +450,7 @@ pub fn Ui.panel(u: *Ui, title: str, lx: i64, ly: i64, lw: i64, lh: i64) {
     draw.clip(u.c, x + 1, y + 1, w - 2, h - 2)
 }
 
-// колонка без фона: виджеты с (x, y) шириной w до end()
+// a column without a background: widgets from (x, y) with width w until end()
 pub fn Ui.area(u: *Ui, x: i64, y: i64, w: i64) {
     u.push()
     b := u.box(x, y, w, 0)
@@ -468,10 +468,10 @@ pub fn Ui.end(u: *Ui) {
     u.lay = u.st[u.sp]
 }
 
-// ---- состояние виджета
+// ---- widget state
 fn Ui.hot(u: *Ui, r: Rect) -> bool { return !u.blocked && inside(r, u.mx, u.my) }
 
-// кликнули ли по r (id — номер виджета)
+// whether r was clicked (id — the widget number)
 fn Ui.click(u: *Ui, id: i64, r: Rect) -> bool {
     hot := u.hot(r)
     if hot && u.pressed { u.active = id }
@@ -492,13 +492,13 @@ fn Ui.label_at(u: *Ui, r: Rect, s: str, col: u32, center: bool) {
     font.text(u.c, u.font, u.m.size, tx, ty, col, 255, s)
 }
 
-// ---- виджеты
+// ---- widgets
 pub fn Ui.label(u: *Ui, s: str) {
     r := u.slot(font.line_h(u.font, u.m.size))
     font.text(u.c, u.font, u.m.size, r.x, r.y, u.m.text, 255, s)
 }
 
-// приглушённая мелкая подпись
+// a dimmed small caption
 pub fn Ui.note(u: *Ui, s: str) {
     sz := u.m.size * 7 / 8
     r := u.slot(font.line_h(u.font, sz))
@@ -510,7 +510,7 @@ pub fn Ui.heading(u: *Ui, s: str) {
     font.text(u.c, u.bold, u.m.title, r.x, r.y, u.m.text, 255, s)
 }
 
-// текст любого размера и цвета шрифтом f (null — основной)
+// text of any size and color in font f (null — the main one)
 pub fn Ui.styled(u: *Ui, s: str, f: *font.Font, size: i64, col: u32) {
     var ff = f
     if ff == null { ff = u.font }
@@ -519,7 +519,7 @@ pub fn Ui.styled(u: *Ui, s: str, f: *font.Font, size: i64, col: u32) {
     font.text(u.c, ff, sz, r.x, r.y, col, 255, s)
 }
 
-// абзац с переносом по словам
+// a paragraph with word wrapping
 pub fn Ui.para(u: *Ui, s: str) {
     lh := font.line_h(u.font, u.m.size)
     var w = u.lay.w
@@ -538,7 +538,7 @@ fn wrap(u: *Ui, s: str, w: i64, x: i64, y: i64, paint: bool) -> i64 {
         var k = font.fit(u.font, u.m.size, s[i..n], w)
         if k <= 0 { k = font.ulen(s[i]) }
         var end = i + k
-        if end < n && s[end] != ' ' && s[end] != 10 {   // назад до пробела
+        if end < n && s[end] != ' ' && s[end] != 10 {   // back to a space
             var b = end
             for b > i && s[b] != ' ' { b -= 1 }
             if b > i { end = b }
@@ -573,7 +573,7 @@ pub fn Ui.button(u: *Ui, s: str) -> bool {
     return hit
 }
 
-// главная кнопка — цветом акцента
+// the main button — in the accent color
 pub fn Ui.primary(u: *Ui, s: str) -> bool {
     u.id += 1
     id := u.id
@@ -584,7 +584,7 @@ pub fn Ui.primary(u: *Ui, s: str) -> bool {
     return hit
 }
 
-// картинка высотой h (ширина — по пропорциям, не шире колонки), углы радиуса rad
+// an image of height h (width by aspect ratio, no wider than the column), corners of radius rad
 pub fn Ui.image(u: *Ui, img: *draw.Image, lh: i64, lrad: i64) {
     if img == null { return }
     h := u.dp(lh)
@@ -599,7 +599,7 @@ pub fn Ui.image(u: *Ui, img: *draw.Image, lh: i64, lrad: i64) {
     draw.image(u.c, img, r.x, r.y + (h - hh) / 2, w, hh, rad, 255)
 }
 
-// кнопка с картинкой; s == "" — только картинка (квадратная кнопка)
+// a button with an image; s == "" — just the image (a square button)
 pub fn Ui.image_button(u: *Ui, img: *draw.Image, s: str) -> bool {
     u.id += 1
     id := u.id
@@ -628,7 +628,7 @@ fn Ui.check_mark(u: *Ui, x: i64, y: i64, s: i64, col: u32) {
     draw.line(u.c, fx + 7.6 * k, fy + 14.0 * k, fx + 15.0 * k, fy + 6.0 * k, 2.4 * k, col)
 }
 
-// флажок -> изменился ли
+// a checkbox -> whether it changed
 pub fn Ui.checkbox(u: *Ui, s: str, v: *bool) -> bool {
     u.id += 1
     id := u.id
@@ -648,7 +648,7 @@ pub fn Ui.checkbox(u: *Ui, s: str, v: *bool) -> bool {
     return hit
 }
 
-// переключатель -> изменился ли
+// a toggle -> whether it changed
 pub fn Ui.toggle(u: *Ui, s: str, v: *bool) -> bool {
     u.id += 1
     id := u.id
@@ -672,7 +672,7 @@ pub fn Ui.toggle(u: *Ui, s: str, v: *bool) -> bool {
     return hit
 }
 
-// один из вариантов: *v становится val -> выбрали ли сейчас
+// one of the options: *v becomes val -> whether it was picked just now
 pub fn Ui.radio(u: *Ui, s: str, v: *i64, val: i64) -> bool {
     u.id += 1
     id := u.id
@@ -693,13 +693,13 @@ pub fn Ui.radio(u: *Ui, s: str, v: *i64, val: i64) -> bool {
     return hit
 }
 
-// ползунок lo..hi -> изменился ли
+// a slider lo..hi -> whether it changed
 pub fn Ui.slider(u: *Ui, v: *i64, lo: i64, hi: i64) -> bool {
     u.id += 1
     id := u.id
     r := u.slot(u.m.h - u.dp(8))
-    vw := u.dp(52)                       // справа — значение
-    e := u.dp(10)                        // поля дорожки
+    vw := u.dp(52)                       // the value on the right
+    e := u.dp(10)                        // track margins
     tr := Rect { x: r.x, y: r.y, w: r.w - vw, h: r.h }
     if u.hot(tr) && u.pressed { u.active = id }
     old := *v
@@ -724,7 +724,7 @@ pub fn Ui.slider(u: *Ui, v: *i64, lo: i64, hi: i64) -> bool {
     return *v != old
 }
 
-// полоса прогресса v из max
+// a progress bar v out of max
 pub fn Ui.progress(u: *Ui, v: i64, max: i64) {
     r := u.slot(u.dp(10))
     draw.rrect(u.c, r.x, r.y, r.w, r.h, r.h / 2, u.m.field, 255)
@@ -735,7 +735,7 @@ pub fn Ui.progress(u: *Ui, v: i64, max: i64) {
     }
 }
 
-// ---- списки: варианты через '|'
+// ---- lists: options separated by '|'
 pub fn count(items: str) -> i64 {
     var n = 1
     for ch in items {
@@ -773,7 +773,7 @@ fn Ui.chevron(u: *Ui, x: i64, y: i64, up: bool, col: u32) {
     }
 }
 
-// выпадающий список: *v — номер выбранного -> выбрали ли сейчас
+// a dropdown: *v — the index of the selected item -> whether one was picked just now
 pub fn Ui.dropdown(u: *Ui, v: *i64, items: str) -> bool {
     u.id += 1
     id := u.id
@@ -833,7 +833,7 @@ fn Ui.draw_popup(u: *Ui) {
     }
 }
 
-// вкладки: *v — номер открытой -> переключили ли
+// tabs: *v — the index of the open one -> whether it was switched
 pub fn Ui.tabs(u: *Ui, v: *i64, items: str) -> bool {
     u.id += 1
     id := u.id
@@ -860,7 +860,7 @@ pub fn Ui.tabs(u: *Ui, v: *i64, items: str) -> bool {
     return changed
 }
 
-// поле ввода: любой язык и раскладка -> изменился ли текст
+// a text field: any language and layout -> whether the text changed
 pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     u.id += 1
     id := u.id
@@ -880,7 +880,7 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     if focused {
         if u.cur > t.n { u.cur = t.n }
         w := u.win
-        tn := w.ntext                    // набранное за кадр, UTF-8
+        tn := w.ntext                    // typed during the frame, UTF-8
         if tn > 0 && t.n + tn <= 255 {
             var j = t.n - 1
             for j >= u.cur {
@@ -932,7 +932,7 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     s := t.get()
     tw := font.width(u.font, u.m.size, s[0..u.cur])
     var sx = r.x + pad
-    if tw > r.w - 2 * pad { sx = r.x + r.w - pad - tw }      // курсор всегда виден
+    if tw > r.w - 2 * pad { sx = r.x + r.w - pad - tw }      // the cursor is always visible
     lh := font.line_h(u.font, u.m.size)
     ty := r.y + (r.h - lh) / 2
     if t.n == 0 && !focused {
@@ -951,7 +951,7 @@ pub fn Ui.input(u: *Ui, t: *Text, hint: str) -> bool {
     return changed
 }
 
-// ---- рисование напрямую (логические координаты страницы)
+// ---- direct drawing (logical page coordinates)
 pub fn Ui.rect(u: *Ui, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32) {
     b := u.box(x, y, w, h)
     draw.rrect(u.c, b.x, b.y, b.w, b.h, u.dp(rad), col, 255)
@@ -968,7 +968,7 @@ pub fn Ui.picture(u: *Ui, img: *draw.Image, x: i64, y: i64, w: i64, h: i64, rad:
     draw.image(u.c, img, b.x, b.y, b.w, b.h, u.dp(rad), 255)
 }
 
-// ширина строки в логических пикселях
+// string width in logical pixels
 pub fn Ui.text_width(u: *Ui, f: *font.Font, size: i64, s: str) -> i64 {
     var ff = f
     if ff == null { ff = u.font }

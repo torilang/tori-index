@@ -1,103 +1,103 @@
-# 2. Раскладка
+# 2. Layout
 
-Все координаты и размеры в shoji — в **логических пикселях** от левого верхнего угла страницы. Как они переходят в пиксели экрана, рассказано в [главе 6](06-scale.md); пока можно считать, что это обычные пиксели.
+All coordinates and sizes in shoji are in **logical pixels** from the top-left corner of the page. How they turn into screen pixels is covered in [chapter 6](06-scale.md); for now you can treat them as ordinary pixels.
 
-## Колонка
+## The column
 
-Виджеты встают колонкой сверху вниз внутри **панели** или **области**:
+Widgets stack in a column from top to bottom inside a **panel** or an **area**:
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.panel(заголовок, x, y, w, h)` | панель со скруглёнными углами, рамкой и тенью. Заголовок может быть `""`. Всё, что внутри, обрезается по её краю |
-| `ui.area(x, y, w)` | колонка шириной `w` без фона и без обрезки |
-| `ui.end()` | конец панели или области: дальше раскладка как до неё |
+| `ui.panel(title, x, y, w, h)` | a panel with rounded corners, a border and a shadow. The title may be `""`. Everything inside is clipped to its edge |
+| `ui.area(x, y, w)` | a column of width `w` with no background and no clipping |
+| `ui.end()` | the end of a panel or area: the layout continues as it was before it |
 
-Ширина виджета — вся ширина колонки за вычетом полей (`th.pad` у панели). Между виджетами — отступ `th.gap`. Панели и области можно вкладывать друг в друга до 16 уровней.
+A widget's width is the whole column width minus the padding (`th.pad` for a panel). Between widgets there's a `th.gap` gap. Panels and areas nest up to 16 levels deep.
 
-Вне всех панелей тоже есть колонка: она идёт по всему окну с полями `th.pad`.
+Outside of all panels there's a column too: it spans the whole window with `th.pad` padding.
 
-## Ряды
+## Rows
 
-`ui.row(n)` ставит следующие `n` виджетов в ряд, поровну деля ширину колонки. После `n`-го виджета раскладка снова идёт колонкой. Высота ряда — по самому высокому виджету.
+`ui.row(n)` puts the next `n` widgets in a row, splitting the column width equally. After the `n`-th widget the layout goes back to a column. The row height is that of the tallest widget.
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Ряды", 420, 200)
+    ui := shoji.open("Rows", 420, 200)
     for ui.frame() {
-        ui.panel("Диалог", 20, 20, 380, 160)
-        ui.label("Сохранить изменения?")
+        ui.panel("Dialog", 20, 20, 380, 160)
+        ui.label("Save changes?")
         ui.row(3)
-        ui.primary("Да")
-        ui.button("Нет")
-        ui.button("Отмена")
+        ui.primary("Yes")
+        ui.button("No")
+        ui.button("Cancel")
         ui.end()
     }
 }
 ```
 
-`ui.row(n)` можно позвать и посреди ряда: недоставленные места просто пропадут, а следующий ряд начнётся с новой строки.
+`ui.row(n)` can also be called in the middle of a row: the unfilled slots are simply dropped, and the next row starts on a new line.
 
-## Отступы и своё место
+## Spacing and room of your own
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.space(h)` | пропустить `h` по вертикали |
-| `ui.next(h) -> Rect` | забрать место под свой виджет высотой `h`: прямоугольник `x`, `y`, `w`, `h` в логических пикселях |
+| `ui.space(h)` | skip `h` vertically |
+| `ui.next(h) -> Rect` | take room for your own widget of height `h`: a rectangle `x`, `y`, `w`, `h` in logical pixels |
 
-`ui.next` нужен, чтобы вставить в колонку что-то своё, например рисунок (см. [главу 8](08-drawing.md)):
+`ui.next` lets you put something of your own into the column, a drawing for example (see [chapter 8](08-drawing.md)):
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Своё место", 360, 240)
+    ui := shoji.open("Your own room", 360, 240)
     for ui.frame() {
-        ui.panel("Полоски", 20, 20, 320, 200)
+        ui.panel("Stripes", 20, 20, 320, 200)
         r := ui.next(60)
         for i in 0..6 { ui.rect(r.x + i * 50, r.y, 40, r.h, 8, 0x2F8FE0) }
-        ui.note("ниже — снова обычные виджеты")
+        ui.note("below — ordinary widgets again")
         ui.end()
     }
 }
 ```
 
-## Адаптивная раскладка
+## Responsive layout
 
-Окно из `shoji.open` растягивается. Его текущий размер в логических пикселях — `ui.width()` и `ui.height()`. Раскладка описывается каждый кадр, поэтому подстроиться под размер — это просто посчитать координаты из этих чисел:
+The window from `shoji.open` is resizable. Its current size in logical pixels is `ui.width()` and `ui.height()`. The layout is described every frame, so adapting to the size is just computing the coordinates from these numbers:
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Колонки", 900, 400)
+    ui := shoji.open("Columns", 900, 400)
     for ui.frame() {
         W := ui.width()
         var cols = 1
         if W >= 700 { cols = 3 } else if W >= 480 { cols = 2 }
-        pw := (W - 20 * (cols + 1)) / cols               // ширина панели
+        pw := (W - 20 * (cols + 1)) / cols               // panel width
         for k in 0..3 {
             x := 20 + (k % cols) * (pw + 20)
             y := 20 + (k / cols) * 180
-            ui.panel(shoji.cat("Панель ", shoji.num(k + 1)), x, y, pw, 160)
-            ui.button("Кнопка")
+            ui.panel(shoji.cat("Panel ", shoji.num(k + 1)), x, y, pw, 160)
+            ui.button("Button")
             ui.end()
         }
     }
 }
 ```
 
-## Прокрутка страницы
+## Page scrolling
 
-Если всё не помещается в окно, скажи shoji высоту страницы:
+If everything doesn't fit in the window, tell shoji the page height:
 
 ```tori
 ui.page_height(1200)
 ```
 
-Пока страница выше окна, её листают колесом мыши, клавишами PgUp и PgDn (когда ни одно поле ввода не в фокусе) и полосой справа: её можно тянуть мышью или щёлкнуть мимо ползунка. Высоту можно задавать каждый кадр — например, считать из числа рядов панелей, как в [витрине](../preview/main.tr).
+While the page is taller than the window, it scrolls with the mouse wheel, the PgUp and PgDn keys (when no text field has focus) and the bar on the right: you can drag it with the mouse or click beside the thumb. The height can be set every frame — for example, computed from the number of panel rows, as in the [showcase](../preview/main.tr).
 
-Все координаты — от верха страницы, а не окна: прокрутка сдвигает их сама. Насколько страница прокручена сейчас, лежит в `ui.scroll` (логические пиксели).
+All coordinates are from the top of the page, not the window: scrolling shifts them by itself. How far the page is scrolled right now is in `ui.scroll` (logical pixels).
 
-Дальше: [Виджеты →](03-widgets.md)
+Next: [Widgets →](03-widgets.md)

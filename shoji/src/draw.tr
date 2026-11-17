@@ -1,18 +1,18 @@
-// draw — рисование в пиксели окна: прямоугольники, скругления со сглаживанием, маски,
-// многоугольники, картинки с масштабом. Цвет — 0xRRGGBB, прозрачность — отдельно (0..255).
+// draw — drawing into window pixels: rectangles, anti-aliased rounded corners, masks,
+// polygons, scaled images. Color is 0xRRGGBB, opacity is separate (0..255).
 use sys
 
 pub struct Canvas {
-    px: *u32                             // w * h пикселей 0xRRGGBB
+    px: *u32                             // w * h pixels 0xRRGGBB
     w: i64
     h: i64
-    cx0: i64                             // обрезка: рисуется только внутри [cx0, cx1) × [cy0, cy1)
+    cx0: i64                             // clipping: only [cx0, cx1) × [cy0, cy1) is drawn
     cy0: i64
     cx1: i64
     cy1: i64
 }
 
-// картинка: пиксели 0xAARRGGBB
+// an image: pixels 0xAARRGGBB
 pub struct Image {
     w: i64
     h: i64
@@ -35,7 +35,7 @@ pub fn noclip(c: *Canvas) {
     c.cy1 = c.h
 }
 
-// обрезка по прямоугольнику (внутри текущей не расширяется — для этого noclip)
+// clip to a rectangle (it never grows beyond the current one — use noclip for that)
 pub fn clip(c: *Canvas, x: i64, y: i64, w: i64, h: i64) {
     c.cx0 = imax(c.cx0, x)
     c.cy0 = imax(c.cy0, y)
@@ -55,7 +55,7 @@ pub fn imax(a: i64, b: i64) -> i64 {
 
 pub fn rgb(r: i64, g: i64, b: i64) -> u32 { return @as(u32, ((r & 255) << 16) | ((g & 255) << 8) | (b & 255)) }
 
-// смесь цветов: a/255 от s и остальное от d
+// a color mix: a/255 of s and the rest of d
 pub fn mix(d: u32, s: u32, a: i64) -> u32 {
     if a >= 255 { return s }
     if a <= 0 { return d }
@@ -68,7 +68,7 @@ pub fn mix(d: u32, s: u32, a: i64) -> u32 {
     return @as(u32, (r << 16) | (g << 8) | b)
 }
 
-fn d255(x: i64) -> i64 {                 // x / 255 с округлением, без деления
+fn d255(x: i64) -> i64 {                 // x / 255 with rounding, without division
     v := x + 128
     return (v + (v >> 8)) >> 8
 }
@@ -102,13 +102,13 @@ pub fn fill_a(c: *Canvas, x: i64, y: i64, w: i64, h: i64, col: u32, a: i64) {
     for j in imax(y, c.cy0)..imin(y + h, c.cy1) { span(c, x, x + w, j, col, a) }
 }
 
-// ---- скругления: маска четверти круга радиуса r (левый верхний угол), сглаженная 4×4
+// ---- rounded corners: a quarter-circle mask of radius r (top-left corner), 4×4 anti-aliased
 var corners: [257]*u8
 
 fn corner(r: i64) -> *u8 {
     if r <= 256 && corners[r] != null { return corners[r] }
     m := sys.alloc(r * r)
-    rr := r * r * 64                     // в 1/8 пикселя: (8r)²
+    rr := r * r * 64                     // in 1/8 pixel: (8r)²
     for j in 0..r {
         for i in 0..r {
             var cov = 0
@@ -126,10 +126,10 @@ fn corner(r: i64) -> *u8 {
     return m
 }
 
-// прямоугольник со скруглёнными углами радиуса r; a — непрозрачность
+// a rectangle with rounded corners of radius r; a — opacity
 pub fn rrect(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32, a: i64) { rrect_rows(c, x, y, w, h, rad, col, a, 0, h) }
 
-// строки j0..j1 скруглённого прямоугольника
+// rows j0..j1 of a rounded rectangle
 fn rrect_rows(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32, a: i64, j0: i64, j1: i64) {
     if w <= 0 || h <= 0 { return }
     var r = imin(rad, imin(w / 2, h / 2))
@@ -158,14 +158,14 @@ fn rrect_rows(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, col: u32, a:
     }
 }
 
-// рамка толщиной t вокруг скруглённого прямоугольника, внутри — fill
+// a border of thickness t around a rounded rectangle, with fill inside
 pub fn rrect_box(c: *Canvas, x: i64, y: i64, w: i64, h: i64, r: i64, fillc: u32, border: u32, t: i64) {
     if w <= 2 * t || h <= 2 * t {
         rrect(c, x, y, w, h, r, border, 255)
         return
     }
     rr := imax(imin(r, imin(w / 2, h / 2)), t)
-    rrect_rows(c, x, y, w, h, r, border, 255, 0, rr)          // рамка: углы целиком, по бокам — только края
+    rrect_rows(c, x, y, w, h, r, border, 255, 0, rr)          // border: whole corners, only the edges on the sides
     rrect_rows(c, x, y, w, h, r, border, 255, h - rr, h)
     for j in rr..h - rr {
         span(c, x, x + t, y + j, border, 255)
@@ -174,11 +174,11 @@ pub fn rrect_box(c: *Canvas, x: i64, y: i64, w: i64, h: i64, r: i64, fillc: u32,
     rrect(c, x + t, y + t, w - 2 * t, h - 2 * t, imax(0, r - t), fillc, 255)
 }
 
-// мягкая тень под прямоугольником
-// (рисуется до самого прямоугольника: под ним тень не считается)
+// a soft shadow under a rectangle
+// (drawn before the rectangle itself: no shadow is computed under it)
 pub fn shadow(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, size: i64) {
     if size <= 0 || w <= 0 || h <= 0 { return }
-    sy := y + size / 2                   // тень чуть ниже
+    sy := y + size / 2                   // the shadow is a bit lower
     r := imin(rad, imin(w / 2, h / 2))
     big := (size + r) * (size + r)
     if big >= 4096 { return }
@@ -189,7 +189,7 @@ pub fn shadow(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, size: i64) {
         var xa = x - size
         xb := x + w + size
         p := c.px + j * c.w
-        under := j >= y + r && j < y + h - r                  // строка закрыта прямоугольником посередине
+        under := j >= y + r && j < y + h - r                  // the row is covered by the rectangle in the middle
         var xi = imax(xa, c.cx0)
         for xi < imin(xb, c.cx1) {
             if under && xi >= x && xi < x + w {
@@ -210,7 +210,7 @@ pub fn shadow(c: *Canvas, x: i64, y: i64, w: i64, h: i64, rad: i64, size: i64) {
     }
 }
 
-var sqt: *i64                            // sqt[k] = 4·√k (для теней)
+var sqt: *i64                            // sqt[k] = 4·√k (for shadows)
 
 fn sq4(k: i64) -> i64 {
     if sqt == null {
@@ -224,7 +224,7 @@ fn sq4(k: i64) -> i64 {
     return sqt[k]
 }
 
-// маска прозрачности mw×mh (0..255) цветом col в точку (x, y)
+// an opacity mask mw×mh (0..255) in color col at point (x, y)
 pub fn mask(c: *Canvas, x: i64, y: i64, m: *u8, mw: i64, mh: i64, col: u32, a: i64) {
     for j in imax(0, c.cy0 - y)..imin(mh, c.cy1 - y) {
         row := m + j * mw
@@ -238,9 +238,9 @@ pub fn mask(c: *Canvas, x: i64, y: i64, m: *u8, mw: i64, mh: i64, col: u32, a: i
     }
 }
 
-// ---- растеризатор со сглаживанием: накопление площадей (как в font-rs).
-// rs_begin(w, h) -> рисуются отрезки rs_line в координатах маски -> rs_end(маска)
-var ra: *f32                             // (w + 3) × (h + 1) накопителей
+// ---- an anti-aliasing rasterizer: area accumulation (as in font-rs).
+// rs_begin(w, h) -> rs_line segments are drawn in mask coordinates -> rs_end(mask)
+var ra: *f32                             // (w + 3) × (h + 1) accumulators
 var rcap: i64
 var rw: i64
 var rh: i64
@@ -338,7 +338,7 @@ pub fn rs_line(ax: f32, ay: f32, bx: f32, by: f32) {
     }
 }
 
-// квадратичная кривая Безье отрезками
+// a quadratic Bézier curve as segments
 pub fn rs_quad(x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) {
     var ddx = x0 - 2.0 * cx + x1
     var ddy = y0 - 2.0 * cy + y1
@@ -359,7 +359,7 @@ pub fn rs_quad(x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) {
     }
 }
 
-// накопители -> маска rw×rh (0..255)
+// accumulators -> an rw×rh mask (0..255)
 pub fn rs_end(out: *u8) {
     stride := rw + 3
     for y in 0..rh {
@@ -375,7 +375,7 @@ pub fn rs_end(out: *u8) {
     }
 }
 
-// залитый многоугольник со сглаживанием: n точек (xs[i], ys[i]) в пикселях холста
+// a filled anti-aliased polygon: n points (xs[i], ys[i]) in canvas pixels
 pub fn poly(c: *Canvas, xs: *f32, ys: *f32, n: i64, col: u32, a: i64) {
     if n < 3 { return }
     var mnx = xs[0]
@@ -403,7 +403,7 @@ pub fn poly(c: *Canvas, xs: *f32, ys: *f32, n: i64, col: u32, a: i64) {
     mask(c, bx, by, m, bw, bh, col, a)
 }
 
-// отрезок толщины t (концы прямые)
+// a segment of thickness t (square ends)
 pub fn line(c: *Canvas, x0: f32, y0: f32, x1: f32, y1: f32, t: f32, col: u32) {
     dx := x1 - x0
     dy := y1 - y0
@@ -432,9 +432,9 @@ pub fn fsqrt(v: f32) -> f32 {
     return x
 }
 
-// картинка в прямоугольник w×h с масштабом (билинейно), углы скруглены радиусом r; a — непрозрачность
+// an image into a w×h rectangle, scaled (bilinear), corners rounded with radius r; a — opacity
 const NCACHE = 64
-var ci_img: [NCACHE]*Image               // кэш картинок в готовом размере
+var ci_img: [NCACHE]*Image               // a cache of images at their final size
 var ci_w: [NCACHE]i64
 var ci_h: [NCACHE]i64
 var ci_r: [NCACHE]i64
@@ -475,7 +475,7 @@ pub fn image(c: *Canvas, img: *Image, x: i64, y: i64, w: i64, h: i64, r: i64, a:
     }
 }
 
-// картинка в w×h пикселей 0xAARRGGBB (билинейно, углы — прозрачные)
+// an image in w×h pixels 0xAARRGGBB (bilinear, transparent corners)
 fn scale(c: *Canvas, img: *Image, w: i64, h: i64, r: i64) {
     x := 0
     y := 0

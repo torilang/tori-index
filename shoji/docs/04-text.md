@@ -1,90 +1,90 @@
-# 4. Текст, шрифты и языки
+# 4. Text, fonts and languages
 
-## Шрифты
+## Fonts
 
-Текст в shoji векторный: контуры шрифта растеризуются со сглаживанием под нужный размер, один раз, и дальше глиф берётся из кэша. Поэтому текст чёткий при любом размере и масштабе.
+Text in shoji is vector: font outlines are rasterized with anti-aliasing for the size you need, once, and then the glyph comes from the cache. So text is sharp at any size and scale.
 
-Встроенный шрифт — подмножество Noto Sans (латиница, кириллица, основные знаки), он зашит в пакет и работает без файлов. Свой шрифт:
+The built-in font is a subset of Noto Sans (Latin, Cyrillic, common symbols); it's embedded in the package and works without any files. Your own font:
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Шрифты", 420, 220)
+    ui := shoji.open("Fonts", 420, 220)
     fira := shoji.load_font("FiraSans-Book.ttf")
     bold := shoji.load_font("FiraSans-Bold.ttf")
-    ui.set_font(fira)                      // null пропускается: останется встроенный
+    ui.set_font(fira)                      // null is ignored: the built-in one stays
     ui.set_bold(bold)
     for ui.frame() {
         ui.panel("Fira Sans", 20, 20, 380, 180)
-        ui.label("Основной шрифт")
-        ui.styled("Крупно и цветом", bold, 28, ui.th.accent)
+        ui.label("The main font")
+        ui.styled("Big and colored", bold, 28, ui.th.accent)
         ui.end()
     }
 }
 ```
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `shoji.load_font(путь) -> *Font` | шрифт из файла или `null` |
-| `shoji.default_font()` | встроенный Noto Sans |
-| `ui.set_font(f)` | основной шрифт: подписи, кнопки, поля |
-| `ui.set_bold(f)` | шрифт заголовков: `heading`, заголовки панелей |
-| `ui.font`, `ui.bold` | текущие шрифты |
+| `shoji.load_font(path) -> *Font` | a font from a file or `null` |
+| `shoji.default_font()` | the built-in Noto Sans |
+| `ui.set_font(f)` | the main font: captions, buttons, fields |
+| `ui.set_bold(f)` | the heading font: `heading`, panel titles |
+| `ui.font`, `ui.bold` | the current fonts |
 
-Форматы:
+Formats:
 
-* `.ttf` — TrueType (контуры `glyf`, в том числе составные глифы);
-* `.otf` — OpenType с контурами CFF, в том числе CID-шрифты вроде Noto Sans CJK;
-* `.ttc` — коллекция: берётся первый шрифт.
+* `.ttf` — TrueType (`glyf` outlines, composite glyphs included);
+* `.otf` — OpenType with CFF outlines, CID fonts like Noto Sans CJK included;
+* `.ttc` — a collection: the first font is used.
 
-Файл не читается целиком, а отображается в память: даже шрифт на 20 МБ открывается мгновенно, а в память попадают только нужные глифы.
+The file isn't read whole but mapped into memory: even a 20 MB font opens instantly, and only the glyphs you need end up in memory.
 
-## Запасные шрифты
+## Fallback fonts
 
-Если в шрифте нет символа, shoji ищет его по очереди:
+If a font lacks a character, shoji looks for it in turn:
 
-1. в запасных шрифтах, которые дал ты: `shoji.fallback(f)` (до 32 штук);
-2. в шрифтах системы — по письменности символа;
-3. если не нашёл нигде — рисует знак замены `�` или `?`.
+1. in the fallback fonts you gave it: `shoji.fallback(f)` (up to 32);
+2. in system fonts — by the character's script;
+3. if it's found nowhere, it draws the replacement character `�` or `?`.
 
-Системные шрифты, которые пробует shoji:
+The system fonts shoji tries:
 
-| Письменность | Linux | Windows |
+| Script | Linux | Windows |
 | :--- | :--- | :--- |
-| китайский, японский, корейский | Noto Sans CJK, WenQuanYi, Droid Sans Fallback | Microsoft YaHei, Yu Gothic, Malgun Gothic, SimSun, MS Gothic, Meiryo |
-| арабский, иврит | Noto Sans Arabic / Hebrew, DejaVu Sans | Segoe UI, Arial, Tahoma |
-| деванагари, бенгали, тамильский | Noto Sans Devanagari / Bengali / Tamil | Nirmala UI, Mangal, Vrinda, Latha |
-| тайский | Noto Sans Thai | Leelawadee UI, Tahoma |
-| армянский, грузинский | Noto Sans Armenian / Georgian, DejaVu Sans | Segoe UI, Sylfaen |
-| всё остальное | Noto Sans, DejaVu Sans, Noto Sans Symbols | Segoe UI, Arial, Segoe UI Symbol |
+| Chinese, Japanese, Korean | Noto Sans CJK, WenQuanYi, Droid Sans Fallback | Microsoft YaHei, Yu Gothic, Malgun Gothic, SimSun, MS Gothic, Meiryo |
+| Arabic, Hebrew | Noto Sans Arabic / Hebrew, DejaVu Sans | Segoe UI, Arial, Tahoma |
+| Devanagari, Bengali, Tamil | Noto Sans Devanagari / Bengali / Tamil | Nirmala UI, Mangal, Vrinda, Latha |
+| Thai | Noto Sans Thai | Leelawadee UI, Tahoma |
+| Armenian, Georgian | Noto Sans Armenian / Georgian, DejaVu Sans | Segoe UI, Sylfaen |
+| everything else | Noto Sans, DejaVu Sans, Noto Sans Symbols | Segoe UI, Arial, Segoe UI Symbol |
 
-В Linux они ищутся в обычных папках шрифтов: `/usr/share/fonts/noto`, `/usr/share/fonts/truetype/…`, `/usr/share/fonts/google-noto…`, `/usr/share/fonts/TTF` и других. Каждый файл открывается не больше одного раза, и только когда понадобился символ его письменности. Выключить поиск в системе: `shoji.system_fonts(false)`.
+On Linux they are looked up in the usual font folders: `/usr/share/fonts/noto`, `/usr/share/fonts/truetype/…`, `/usr/share/fonts/google-noto…`, `/usr/share/fonts/TTF` and others. Each file is opened at most once, and only when a character of its script is needed. To turn off the system lookup: `shoji.system_fonts(false)`.
 
-Глиф из запасного шрифта встаёт на ту же базовую линию и того же размера, что и основной текст.
+A glyph from a fallback font sits on the same baseline and at the same size as the main text.
 
-## Ввод на любом языке
+## Input in any language
 
-`ui.input` берёт набранные символы у окна (`ui.win.text`), а окно получает их уже с раскладкой. Поэтому в поле набирается всё, что можно набрать с клавиатуры:
+`ui.input` takes the typed characters from the window (`ui.win.text`), and the window gets them with the layout already applied. So a field accepts everything you can type on a keyboard:
 
-* любые раскладки и переключение между ними: русская, украинская, немецкая, греческая, иврит…;
+* any layouts and switching between them: English, German, Russian, Ukrainian, Greek, Hebrew…;
 * Shift, Caps Lock, Num Lock;
-* AltGr: `@` и `€` в немецкой раскладке, `ł` в польской;
-* мёртвые клавиши: ´ потом e — это é, ¨ потом u — ü;
-* в Windows ещё и методы ввода (IME) для китайского, японского и корейского.
+* AltGr: `@` and `€` on a German layout, `ł` on a Polish one;
+* dead keys: ´ then e is é, ¨ then u is ü;
+* on Windows also input methods (IME) for Chinese, Japanese and Korean.
 
-Курсор и Backspace ходят по символам, а не по байтам: «ж» стирается целиком.
+The cursor and Backspace move by characters, not bytes: «ж» or «é» is erased whole.
 
-## Ограничения
+## Limitations
 
-* Текст выводится слева направо, без кернинга и лигатур. Латиница, кириллица, греческий, армянский, грузинский, китайский, японский и корейский выглядят как надо.
-* Нет сборки сложных письменностей: арабские буквы не соединяются, иврит и арабский не разворачиваются справа налево, в деванагари и других индийских письменностях знаки не переставляются.
-* В Linux нет методов ввода (fcitx, ibus): иероглифы там можно показать, но не набрать.
-* Буфера обмена нет.
+* Text runs left to right, without kerning or ligatures. Latin, Cyrillic, Greek, Armenian, Georgian, Chinese, Japanese and Korean look right.
+* There's no complex script shaping: Arabic letters don't join, Hebrew and Arabic aren't reordered right to left, and in Devanagari and other Indic scripts the signs aren't reordered.
+* There are no input methods on Linux (fcitx, ibus): CJK characters can be shown there but not typed.
+* There's no clipboard.
 
-## Ширина текста
+## Text width
 
-* `ui.text_width(шрифт, размер, s)` — ширина строки в логических пикселях (`шрифт` — `null` для основного).
-* `shoji.text_width(шрифт, размер, s)` — то же в пикселях экрана, без учёта масштаба.
+* `ui.text_width(font, size, s)` — string width in logical pixels (`font` — `null` for the main one).
+* `shoji.text_width(font, size, s)` — the same in screen pixels, without the scale.
 
-Дальше: [Картинки →](05-images.md)
+Next: [Images →](05-images.md)

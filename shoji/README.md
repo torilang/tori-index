@@ -1,10 +1,10 @@
 # shoji
 
-Интерфейсы для [Tori](https://github.com/torilang): панели, кнопки, флажки, переключатели, ползунки, выпадающие списки, поля ввода, вкладки, текст векторными шрифтами, картинки PNG, скругления и мягкие тени. Масштаб под экран (100 %, 150 %, 200 %…), окна растягиваются, ввод на любом языке. Работает в Linux и Windows: всё рисуется программно в пиксели окна из `window()`, без GTK, Qt и прочих библиотек.
+User interfaces for [Tori](https://github.com/torilang/tori): panels, buttons, checkboxes, toggles, sliders, dropdowns, text fields, tabs, text in vector fonts, PNG images, rounded corners and soft shadows. HiDPI scaling (100 %, 150 %, 200 %…), resizable windows, input in any language. Works on Linux and Windows: everything is drawn in software straight into the pixels of a `window()`, with no GTK, Qt or any other library.
 
-![витрина](preview/screenshot.png)
+![showcase](preview/screenshot.png)
 
-**Документация:** [docs/](docs/README.md) — начало, раскладка, виджеты, шрифты и языки, картинки, масштаб, темы, рисование и полный справочник.
+**Documentation:** [docs/](docs/README.md) — getting started, layout, widgets, fonts and languages, images, scaling, themes, drawing and the full reference.
 
 ```bash
 nest install shoji
@@ -14,149 +14,149 @@ nest install shoji
 use shoji
 
 fn main() {
-    ui := shoji.open("Привет", 480, 320)
+    ui := shoji.open("Hello", 480, 320)
     var n = 0
     var on = true
     for ui.frame() {
-        ui.panel("Счётчик", 20, 20, 440, 280)
-        if ui.primary("Ещё") { n += 1 }
-        ui.label(shoji.cat("Нажато: ", shoji.num(n)))
-        ui.toggle("Тёмная тема", &on)
+        ui.panel("Counter", 20, 20, 440, 280)
+        if ui.primary("More") { n += 1 }
+        ui.label(shoji.cat("Pressed: ", shoji.num(n)))
+        ui.toggle("Dark theme", &on)
         ui.end()
     }
 }
 ```
 
-## Витрина
+## Showcase
 
 ```bash
 cd ~/.tori/packs/shoji/preview      # Windows: %USERPROFILE%\.tori\packs\shoji\preview
 tori run main.tr
 ```
 
-Там все виджеты, тёмная и светлая темы, смена цвета акцента, свои шрифты (Fira Sans) и картинки. Окно можно растягивать: панели встают в три, две или одну колонку, а то, что не влезло, листается колесом. Ctrl + колесо меняет масштаб.
+It has every widget, dark and light themes, accent colors, custom fonts (Fira Sans) and images. The window is resizable: panels flow into three, two or one column, and whatever doesn't fit scrolls with the wheel. Ctrl + wheel changes the scale.
 
-## Как устроено
+## How it works
 
-**Immediate mode.** Каждый кадр программа заново описывает окно, а виджет сразу отвечает, что с ним сделали: `if ui.button("OK") { … }`. Колбэков и объектов-виджетов нет, состояние — твои переменные: `ui.checkbox("Звук", &sound)` сам переключает `sound`.
+**Immediate mode.** Every frame the program describes the window anew, and a widget answers right away what was done to it: `if ui.button("OK") { … }`. There are no callbacks and no widget objects; the state is your own variables: `ui.checkbox("Sound", &sound)` flips `sound` by itself.
 
-**Цикл.** `for ui.frame() { … }`: показывает прошлый кадр, ждёт ~1/60 с, разбирает мышь и клавиатуру и начинает новый кадр. Цикл кончается, когда окно закрыли.
+**The loop.** `for ui.frame() { … }` shows the previous frame, waits ~1/60 s, processes the mouse and keyboard and starts a new frame. The loop ends when the window is closed.
 
-**Раскладка.** Виджеты встают колонкой внутри `ui.panel(…)` / `ui.area(…)` до `ui.end()`. `ui.row(n)` ставит следующие `n` виджетов в ряд поровну по ширине.
+**Layout.** Widgets stack in a column inside `ui.panel(…)` / `ui.area(…)` until `ui.end()`. `ui.row(n)` puts the next `n` widgets in a row, sharing the width equally.
 
-**Масштаб.** Все координаты и размеры — в логических пикселях. На экране они умножаются на масштаб: DPI системы (в Linux — `Xft.dpi`, его ставят настройки масштаба GNOME и KDE; в Windows — системный) × зум пользователя. Зум — Ctrl + колесо, Ctrl + `=` / `-` / `0` или `ui.set_zoom(150)`. Шрифты и скругления при этом растеризуются заново под размер, а не растягиваются, поэтому остаются чёткими.
+**Scaling.** All coordinates and sizes are in logical pixels. On screen they are multiplied by the scale: the system DPI (on Linux — `Xft.dpi`, set by the GNOME and KDE scaling settings; on Windows — the system one) × the user's zoom. Zoom is Ctrl + wheel, Ctrl + `=` / `-` / `0` or `ui.set_zoom(150)`. Fonts and rounded corners are re-rasterized for the size rather than stretched, so they stay sharp.
 
-**Адаптивность.** Окно из `shoji.open` растягивается. `ui.width()` и `ui.height()` — его размер в логических пикселях, по ним раскладку можно перестраивать каждый кадр. `ui.page_height(h)` задаёт высоту страницы: если она выше окна, страница листается колесом, PgUp/PgDn и полосой справа.
+**Responsive.** The window from `shoji.open` is resizable. `ui.width()` and `ui.height()` are its size in logical pixels; you can rearrange the layout from them every frame. `ui.page_height(h)` sets the page height: if it's taller than the window, the page scrolls with the wheel, PgUp/PgDn and the bar on the right.
 
-**Шрифты.** Векторные TrueType и OpenType со сглаживанием: `.ttf`, `.otf` (контуры CFF) и коллекции `.ttc`. Глиф растеризуется один раз на размер и дальше берётся из кэша. Встроен Noto Sans: латиница, кириллица и основные знаки. Свой шрифт подключается через `shoji.load_font("файл.ttf")`. Если в шрифте нет символа, shoji ищет его в запасных: сначала в своих (`shoji.fallback(f)`), потом в шрифтах системы — Noto, DejaVu, WenQuanYi в Linux, Segoe UI, Microsoft YaHei, Malgun Gothic и другие в Windows. Так греческий, грузинский, армянский, иврит, тайский, китайский, японский и корейский текст виден без настройки.
+**Fonts.** Anti-aliased TrueType and OpenType vector fonts: `.ttf`, `.otf` (CFF outlines) and `.ttc` collections. A glyph is rasterized once per size and then taken from the cache. Noto Sans is built in: Latin, Cyrillic and common symbols. Load your own with `shoji.load_font("file.ttf")`. When a font lacks a character, shoji looks in the fallbacks: first your own (`shoji.fallback(f)`), then the system fonts — Noto, DejaVu, WenQuanYi on Linux, Segoe UI, Microsoft YaHei, Malgun Gothic and others on Windows. So Greek, Georgian, Armenian, Hebrew, Thai, Chinese, Japanese and Korean text shows up with no setup.
 
-**Ввод на любом языке.** Поле ввода берёт набранные символы у окна (`win.text`), уже с раскладкой: русская, немецкая, греческая и любая другая, Caps Lock, AltGr, мёртвые клавиши (´ + e = é). В Windows работают и методы ввода (IME) для китайского, японского и корейского.
+**Input in any language.** A text field takes the typed characters from the window (`win.text`) with the layout already applied: English, German, Russian, Greek or any other, Caps Lock, AltGr, dead keys (´ + e = é). On Windows input methods (IME) for Chinese, Japanese and Korean work too.
 
-**Картинки.** PNG любого типа цвета, глубина 1–16 бит, с прозрачностью; чересстрочные не поддерживаются. Масштаб билинейный, готовый размер кэшируется.
+**Images.** PNG of any color type, depth 1–16 bits, with transparency; interlaced files are not supported. Scaling is bilinear, and the final size is cached.
 
-## Справочник
+## Reference
 
-### Окно и кадр
+### Window and frame
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `shoji.open(заголовок, w, h) -> *Ui` | окно `w`×`h` логических пикселей и интерфейс к нему; окно растягивается |
-| `shoji.attach(win) -> *Ui` | интерфейс к уже открытому `window()` |
-| `ui.frame() -> bool` | следующий кадр; `false` — окно закрыли |
-| `ui.begin()`, `ui.finish()` | то же вручную, если окон несколько и `frame()` зовёшь сам |
-| `ui.dark()`, `ui.light()` | тема |
-| `ui.accent(0xRRGGBB)` | цвет акцента |
-| `ui.set_font(f)`, `ui.set_bold(f)` | основной шрифт и шрифт заголовков |
-| `ui.th` | тема целиком (`Theme`): цвета, `radius`, `size`, `title`, `pad`, `gap`, `h` — можно менять |
-| `ui.time()` | мс с открытия окна |
-| `ui.width()`, `ui.height()` | размер окна в логических пикселях |
-| `ui.scale()` | масштаб, %: DPI × зум |
-| `ui.set_zoom(%)`, `ui.zoom` | зум пользователя (100 — как задумано, от 50 до 400) |
-| `ui.page_height(h)` | высота страницы: что ниже окна, листается |
-| `ui.px(v)` | логические пиксели -> пиксели экрана (для `ui.canvas()`) |
-| `ui.mouse_x()`, `ui.mouse_y()`, `ui.key(KEY_…)`, `ui.held(KEY_…)` | ввод напрямую |
+| `shoji.open(title, w, h) -> *Ui` | a `w`×`h` logical-pixel window and a UI for it; the window is resizable |
+| `shoji.attach(win) -> *Ui` | a UI for an already open `window()` |
+| `ui.frame() -> bool` | the next frame; `false` — the window was closed |
+| `ui.begin()`, `ui.finish()` | the same by hand, if you have several windows and call `frame()` yourself |
+| `ui.dark()`, `ui.light()` | the theme |
+| `ui.accent(0xRRGGBB)` | the accent color |
+| `ui.set_font(f)`, `ui.set_bold(f)` | the main font and the heading font |
+| `ui.th` | the whole theme (`Theme`): colors, `radius`, `size`, `title`, `pad`, `gap`, `h` — all changeable |
+| `ui.time()` | ms since the window opened |
+| `ui.width()`, `ui.height()` | the window size in logical pixels |
+| `ui.scale()` | the scale, %: DPI × zoom |
+| `ui.set_zoom(%)`, `ui.zoom` | the user's zoom (100 — as designed, 50 to 400) |
+| `ui.page_height(h)` | the page height: whatever is below the window scrolls |
+| `ui.px(v)` | logical pixels -> screen pixels (for `ui.canvas()`) |
+| `ui.mouse_x()`, `ui.mouse_y()`, `ui.key(KEY_…)`, `ui.held(KEY_…)` | raw input |
 
-### Раскладка
+### Layout
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.panel(заголовок, x, y, w, h)` | панель со скруглением и тенью; заголовок может быть `""` |
-| `ui.area(x, y, w)` | колонка без фона |
-| `ui.end()` | конец панели или колонки |
-| `ui.row(n)` | следующие `n` виджетов — в ряд |
-| `ui.space(px)` | отступ |
-| `ui.next(h) -> Rect` | место под свой виджет высоты `h` (логические пиксели) |
+| `ui.panel(title, x, y, w, h)` | a panel with rounded corners and a shadow; the title may be `""` |
+| `ui.area(x, y, w)` | a column without a background |
+| `ui.end()` | the end of a panel or column |
+| `ui.row(n)` | the next `n` widgets go in a row |
+| `ui.space(px)` | spacing |
+| `ui.next(h) -> Rect` | room for your own widget of height `h` (logical pixels) |
 
-### Виджеты
+### Widgets
 
-| Вызов | Результат |
+| Call | Result |
 | :--- | :--- |
-| `ui.label(s)`, `ui.note(s)`, `ui.heading(s)` | текст, приглушённая подпись, заголовок |
-| `ui.para(s)` | абзац с переносом по словам |
-| `ui.styled(s, шрифт, размер, цвет)` | текст любым шрифтом (`null` — основной) |
-| `ui.button(s) -> bool` | кнопка; `true` — нажали |
-| `ui.primary(s) -> bool` | кнопка цветом акцента |
-| `ui.image_button(img, s) -> bool` | кнопка с картинкой; `s == ""` — квадратная, только картинка |
-| `ui.checkbox(s, &b) -> bool` | флажок; `true` — изменился |
-| `ui.toggle(s, &b) -> bool` | переключатель |
-| `ui.radio(s, &v, значение) -> bool` | один из вариантов |
-| `ui.slider(&v, от, до) -> bool` | ползунок со значением справа |
-| `ui.progress(v, max)` | полоса прогресса |
-| `ui.dropdown(&v, "А\|Б\|В") -> bool` | выпадающий список; `v` — номер выбранного |
-| `ui.tabs(&v, "А\|Б\|В") -> bool` | вкладки |
-| `ui.input(t, подсказка) -> bool` | поле ввода на любом языке; `t := shoji.text_new("")`, текст — `t.get()` (до 255 байт UTF-8) |
-| `ui.image(img, h, радиус)` | картинка высотой `h` со скруглёнными углами |
-| `ui.separator()` | линия |
+| `ui.label(s)`, `ui.note(s)`, `ui.heading(s)` | text, a dimmed caption, a heading |
+| `ui.para(s)` | a paragraph with word wrapping |
+| `ui.styled(s, font, size, color)` | text in any font (`null` — the main one) |
+| `ui.button(s) -> bool` | a button; `true` — it was pressed |
+| `ui.primary(s) -> bool` | a button in the accent color |
+| `ui.image_button(img, s) -> bool` | a button with an image; `s == ""` — a square one, image only |
+| `ui.checkbox(s, &b) -> bool` | a checkbox; `true` — it changed |
+| `ui.toggle(s, &b) -> bool` | a toggle |
+| `ui.radio(s, &v, value) -> bool` | one of several options |
+| `ui.slider(&v, lo, hi) -> bool` | a slider with the value on the right |
+| `ui.progress(v, max)` | a progress bar |
+| `ui.dropdown(&v, "A\|B\|C") -> bool` | a dropdown; `v` — the index of the selected item |
+| `ui.tabs(&v, "A\|B\|C") -> bool` | tabs |
+| `ui.input(t, hint) -> bool` | a text field in any language; `t := shoji.text_new("")`, the text is `t.get()` (up to 255 bytes of UTF-8) |
+| `ui.image(img, h, radius)` | an image of height `h` with rounded corners |
+| `ui.separator()` | a line |
 
-### Рисование напрямую
+### Direct drawing
 
-Координаты — логические, от верха страницы (с прокруткой).
+Coordinates are logical, from the top of the page (scrolling included).
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.rect(x, y, w, h, радиус, цвет)` | скруглённый прямоугольник |
-| `ui.text_at(x, y, s, шрифт, размер, цвет) -> ширина` | текст (`шрифт` — `null` для основного) |
-| `ui.picture(img, x, y, w, h, радиус)` | картинка в прямоугольник |
-| `ui.text_width(шрифт, размер, s)` | ширина строки в логических пикселях |
-| `ui.canvas()` | холст для `shoji/draw`: `draw.poly`, `draw.line`, `draw.shadow`… — в пикселях экрана, переводи через `ui.px` |
+| `ui.rect(x, y, w, h, radius, color)` | a rounded rectangle |
+| `ui.text_at(x, y, s, font, size, color) -> width` | text (`font` — `null` for the main one) |
+| `ui.picture(img, x, y, w, h, radius)` | an image into a rectangle |
+| `ui.text_width(font, size, s)` | string width in logical pixels |
+| `ui.canvas()` | a canvas for `shoji/draw`: `draw.poly`, `draw.line`, `draw.shadow`… — in screen pixels, convert with `ui.px` |
 
-### Шрифты, картинки, строки
+### Fonts, images, strings
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `shoji.load_font(путь) -> *Font` | `.ttf`, `.otf`, `.ttc` или `null` |
-| `shoji.default_font()` | встроенный Noto Sans |
-| `shoji.fallback(f)` | запасной шрифт для недостающих символов |
-| `shoji.system_fonts(false)` | не искать недостающие символы в шрифтах системы |
-| `shoji.text_width(шрифт, размер, s)` | ширина строки в пикселях экрана |
-| `shoji.load_image(путь) -> *Image` | `.png` или `null`; почему — `shoji.image_error()` |
-| `shoji.num(v)`, `shoji.cat(a, b)` | число в строку и склейка (строки живут несколько кадров) |
+| `shoji.load_font(path) -> *Font` | `.ttf`, `.otf`, `.ttc` or `null` |
+| `shoji.default_font()` | the built-in Noto Sans |
+| `shoji.fallback(f)` | a fallback font for missing characters |
+| `shoji.system_fonts(false)` | don't look up missing characters in system fonts |
+| `shoji.text_width(font, size, s)` | string width in screen pixels |
+| `shoji.load_image(path) -> *Image` | `.png` or `null`; why — `shoji.image_error()` |
+| `shoji.num(v)`, `shoji.cat(a, b)` | a number as a string and string joining (the strings live for a few frames) |
 
-## Ограничения
+## Limitations
 
-* Текст выводится слева направо, без кернинга, лигатур и сборки сложных письменностей: арабские буквы не соединяются, иврит и арабский не разворачиваются справа налево, деванагари и другие индийские письменности выходят без перестановки знаков. Латиница, кириллица, греческий, армянский, грузинский, китайский, японский и корейский выглядят как надо.
-* В Linux нет методов ввода (fcitx, ibus): иероглифы набираются только в Windows через IME, но показываются везде.
-* Буфера обмена нет.
+* Text runs left to right, without kerning, ligatures or complex script shaping: Arabic letters don't join, Hebrew and Arabic aren't reordered right to left, and Devanagari and other Indic scripts come out without reordering. Latin, Cyrillic, Greek, Armenian, Georgian, Chinese, Japanese and Korean look right.
+* There are no input methods on Linux (fcitx, ibus): CJK characters can only be typed on Windows through IME, but they display everywhere.
+* There is no clipboard.
 
-## Модули
+## Modules
 
-| Файл | Что внутри |
+| File | What's inside |
 | :--- | :--- |
-| `src/lib.tr` | `Ui`, темы, раскладка, виджеты |
-| `src/draw.tr` | холст, скругления, тени, растеризатор со сглаживанием, картинки |
-| `src/font.tr` | TrueType и OpenType: `cmap` (форматы 4 и 12), `glyf` (в том числе составные глифы), CFF (Type 2), `.ttc`, запасные шрифты, кэш глифов |
-| `src/png.tr` | inflate и декодер PNG |
-| `src/font_data.tr` | встроенный шрифт, сгенерирован `tools/fontpack.tr` |
-| `src/sys.tr` | память, файлы, отображение файлов в память |
+| `src/lib.tr` | `Ui`, themes, layout, widgets |
+| `src/draw.tr` | the canvas, rounded corners, shadows, the anti-aliasing rasterizer, images |
+| `src/font.tr` | TrueType and OpenType: `cmap` (formats 4 and 12), `glyf` (composite glyphs included), CFF (Type 2), `.ttc`, fallback fonts, the glyph cache |
+| `src/png.tr` | inflate and the PNG decoder |
+| `src/font_data.tr` | the built-in font, generated by `tools/fontpack.tr` |
+| `src/sys.tr` | memory, files, memory-mapped files |
 
-Пересобрать встроенный шрифт из другого `.ttf`:
+To rebuild the built-in font from another `.ttf`:
 
 ```bash
-cd tools && tori run fontpack.tr шрифт.ttf ../src/font_data.tr
+cd tools && tori run fontpack.tr font.ttf ../src/font_data.tr
 ```
 
-`fontpack` читает `/proc/self/cmdline`, поэтому работает в Linux.
+`fontpack` reads `/proc/self/cmdline`, so it runs on Linux.
 
-## Лицензии
+## Licenses
 
-Код — MIT. Встроенный шрифт — подмножество Noto Sans (SIL Open Font License 1.1, [OFL-NotoSans.txt](OFL-NotoSans.txt)). Шрифты витрины Fira Sans — SIL OFL 1.1 ([preview/OFL-FiraSans.txt](preview/OFL-FiraSans.txt)).
+The code is MIT. The built-in font is a subset of Noto Sans (SIL Open Font License 1.1, [OFL-NotoSans.txt](OFL-NotoSans.txt)). The showcase fonts, Fira Sans, are SIL OFL 1.1 ([preview/OFL-FiraSans.txt](preview/OFL-FiraSans.txt)).

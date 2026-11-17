@@ -1,8 +1,8 @@
-// sys — память и файлы для shoji (Linux: @sys, Windows: KERNEL32)
+// sys — memory and files for shoji (Linux: @sys, Windows: KERNEL32)
 var heap: *u8
 var heap_left: i64
 
-pub fn mem(n: i64) -> *u8 {              // n нулевых байт прямо у системы
+pub fn mem(n: i64) -> *u8 {              // n zero bytes straight from the system
     var p = 0
     if @os("win") {
         p = @win("VirtualAlloc", 0, n, 0x3000, 4)
@@ -11,13 +11,13 @@ pub fn mem(n: i64) -> *u8 {              // n нулевых байт прямо
         p = @sys(9, 0, n, 3, 0x22, -1, 0)
     }
     if p < 0 && p > -4096 {
-        say("shoji: нет памяти")
+        say("shoji: out of memory")
         quit(1)
     }
     return @as(*u8, p)
 }
 
-// n нулевых байт из кучи (не освобождается)
+// n zero bytes from the heap (never freed)
 pub fn alloc(n: i64) -> *u8 {
     k := (n + 15) & ~15
     if k > 0x400000 { return mem(k) }
@@ -46,7 +46,7 @@ fn cz(s: str) -> *u8 {
     return p
 }
 
-fn wz(s: str) -> *u16 {                  // UTF-8 -> UTF-16 с нулём
+fn wz(s: str) -> *u16 {                  // UTF-8 -> NUL-terminated UTF-16
     n := @as(i64, s.span)
     w := @as(*u16, alloc(n * 2 + 4))
     if @os("win") {
@@ -58,7 +58,7 @@ fn wz(s: str) -> *u16 {                  // UTF-8 -> UTF-16 с нулём
     return w
 }
 
-// весь файл | "" (нет файла или пустой)
+// the whole file | "" (no file or an empty one)
 pub fn read_file(path: str) -> str {
     var fd = 0
     if @os("win") {
@@ -95,7 +95,7 @@ pub fn read_file(path: str) -> str {
     return buf[0..n]
 }
 
-// файл целиком, отображённый в память (для больших шрифтов: читаются только нужные страницы) | ""
+// the whole file mapped into memory (for big fonts: only the needed pages are read) | ""
 pub fn map_file(path: str) -> str {
     var p = 0
     var n = 0
@@ -153,7 +153,7 @@ pub fn write_file(path: str, data: str) -> bool {
     return at == n
 }
 
-// миллисекунды монотонных часов
+// milliseconds of the monotonic clock
 pub fn ms() -> i64 {
     if @os("win") {
         return @as(i64, @as(u32, @win("GetTickCount")))

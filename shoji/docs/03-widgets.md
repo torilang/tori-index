@@ -1,160 +1,160 @@
-# 3. Виджеты
+# 3. Widgets
 
-Все виджеты встают в текущую колонку или ряд (см. [главу 2](02-layout.md)). Тот, что что-то меняет, возвращает `bool`: `true` — именно в этом кадре нажали или изменили.
+All widgets go into the current column or row (see [chapter 2](02-layout.md)). A widget that changes something returns a `bool`: `true` — it was pressed or changed in this very frame.
 
-## Текст
+## Text
 
-| Вызов | Что рисует |
+| Call | What it draws |
 | :--- | :--- |
-| `ui.label(s)` | строку основным шрифтом |
-| `ui.note(s)` | приглушённую подпись помельче |
-| `ui.heading(s)` | заголовок жирным шрифтом |
-| `ui.para(s)` | абзац: переносится по словам по ширине колонки, `\n` — новая строка |
-| `ui.styled(s, шрифт, размер, цвет)` | строку любым шрифтом, размером и цветом; `шрифт` — `null` для основного |
-| `ui.separator()` | тонкую линию |
+| `ui.label(s)` | a line in the main font |
+| `ui.note(s)` | a smaller dimmed caption |
+| `ui.heading(s)` | a heading in the bold font |
+| `ui.para(s)` | a paragraph: wrapped by words to the column width, `\n` is a new line |
+| `ui.styled(s, font, size, color)` | a line in any font, size and color; `font` — `null` for the main one |
+| `ui.separator()` | a thin line |
 
-Строки — в UTF-8, на любом языке (см. [главу 4](04-text.md)).
+Strings are UTF-8, in any language (see [chapter 4](04-text.md)).
 
-## Кнопки
+## Buttons
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.button(s) -> bool` | обычная кнопка |
-| `ui.primary(s) -> bool` | главная кнопка, цветом акцента |
-| `ui.image_button(img, s) -> bool` | кнопка с картинкой слева от текста; при `s == ""` — квадратная, только картинка |
+| `ui.button(s) -> bool` | an ordinary button |
+| `ui.primary(s) -> bool` | the main button, in the accent color |
+| `ui.image_button(img, s) -> bool` | a button with an image left of the text; with `s == ""` — a square one, image only |
 
-Кнопка срабатывает, когда кнопку мыши отпустили над ней же: нажал, увёл в сторону, отпустил — не считается.
+A button fires when the mouse button is released over that same button: press, move away, release — doesn't count.
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Кнопки", 360, 200)
+    ui := shoji.open("Buttons", 360, 200)
     var n = 0
     for ui.frame() {
         ui.panel("", 20, 20, 320, 160)
         ui.row(2)
-        if ui.primary("Плюс") { n += 1 }
-        if ui.button("Сброс") { n = 0 }
+        if ui.primary("Plus") { n += 1 }
+        if ui.button("Reset") { n = 0 }
         ui.heading(shoji.num(n))
         ui.end()
     }
 }
 ```
 
-## Флажки, переключатели, варианты
+## Checkboxes, toggles, options
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.checkbox(s, &b) -> bool` | флажок; щелчок переключает `b` |
-| `ui.toggle(s, &b) -> bool` | то же в виде переключателя |
-| `ui.radio(s, &v, значение) -> bool` | один вариант из нескольких: щелчок ставит `v = значение`, отмечен тот, у которого `v == значение` |
+| `ui.checkbox(s, &b) -> bool` | a checkbox; a click flips `b` |
+| `ui.toggle(s, &b) -> bool` | the same as a toggle switch |
+| `ui.radio(s, &v, value) -> bool` | one option out of several: a click sets `v = value`, the one with `v == value` is marked |
 
-`checkbox` и `toggle` возвращают `true`, если `b` изменился; `radio` — если по нему щёлкнули.
+`checkbox` and `toggle` return `true` if `b` changed; `radio` — if it was clicked.
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Выбор", 360, 260)
+    ui := shoji.open("Choice", 360, 260)
     var hints = true
     var quality = 1
     for ui.frame() {
-        ui.panel("Настройки", 20, 20, 320, 220)
-        ui.checkbox("Подсказки", &hints)
-        ui.note("Качество")
-        ui.radio("Низкое", &quality, 0)
-        ui.radio("Среднее", &quality, 1)
-        ui.radio("Высокое", &quality, 2)
+        ui.panel("Settings", 20, 20, 320, 220)
+        ui.checkbox("Hints", &hints)
+        ui.note("Quality")
+        ui.radio("Low", &quality, 0)
+        ui.radio("Medium", &quality, 1)
+        ui.radio("High", &quality, 2)
         ui.end()
     }
 }
 ```
 
-## Числа
+## Numbers
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.slider(&v, от, до) -> bool` | ползунок целого `v` от `от` до `до`, справа — значение. Тянут мышью; `true`, пока значение меняется |
-| `ui.progress(v, max)` | полоса прогресса: заполнено `v` из `max` |
+| `ui.slider(&v, lo, hi) -> bool` | a slider for the integer `v` from `lo` to `hi`, the value on the right. Drag it with the mouse; `true` while the value is changing |
+| `ui.progress(v, max)` | a progress bar: `v` out of `max` filled |
 
-## Списки и вкладки
+## Lists and tabs
 
-Варианты пишутся одной строкой через `|`: `"Русский|English|日本語"`. Номер выбранного — в `i64`-переменной, с нуля.
+The options are written as one string separated by `|`: `"English|Deutsch|日本語"`. The index of the selected one is in an `i64` variable, starting from zero.
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.dropdown(&v, варианты) -> bool` | выпадающий список. Открывается щелчком, рисуется поверх всего; если снизу не хватает места — вверх. `true` — выбрали вариант |
-| `ui.tabs(&v, варианты) -> bool` | вкладки в ряд. `true` — переключили |
+| `ui.dropdown(&v, options) -> bool` | a dropdown list. Opens on a click and is drawn on top of everything; if there's no room below, it opens upwards. `true` — an option was picked |
+| `ui.tabs(&v, options) -> bool` | tabs in a row. `true` — switched |
 
-`shoji.count(варианты)` — сколько вариантов, `shoji.item(варианты, k)` — `k`-й из них.
+`shoji.count(options)` is the number of options, `shoji.item(options, k)` is the `k`-th of them.
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Вкладки", 380, 240)
+    ui := shoji.open("Tabs", 380, 240)
     var tab = 0
     var lang = 0
     for ui.frame() {
         ui.panel("", 20, 20, 340, 200)
-        ui.tabs(&tab, "Общее|Язык")
+        ui.tabs(&tab, "General|Language")
         if tab == 0 {
-            ui.label("Общие настройки")
+            ui.label("General settings")
         } else {
-            ui.dropdown(&lang, "Русский|English|日本語")
-            ui.note(shoji.cat("выбран: ", shoji.item("Русский|English|日本語", lang)))
+            ui.dropdown(&lang, "English|Deutsch|日本語")
+            ui.note(shoji.cat("selected: ", shoji.item("English|Deutsch|日本語", lang)))
         }
         ui.end()
     }
 }
 ```
 
-## Поле ввода
+## Text field
 
-Текст поля хранится в `*Text` — строке до 255 байт UTF-8:
+A field's text is kept in a `*Text` — a string of up to 255 bytes of UTF-8:
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `shoji.text_new(s) -> *Text` | новая строка с начальным текстом |
-| `t.get() -> str` | текст сейчас |
-| `t.set(s)` | заменить текст |
-| `t.n` | длина в байтах |
-| `ui.input(t, подсказка) -> bool` | поле ввода; подсказка видна серым, пока поле пустое. `true` — текст изменился |
+| `shoji.text_new(s) -> *Text` | a new string with initial text |
+| `t.get() -> str` | the current text |
+| `t.set(s)` | replace the text |
+| `t.n` | length in bytes |
+| `ui.input(t, hint) -> bool` | a text field; the hint shows in gray while the field is empty. `true` — the text changed |
 
-Щелчок по полю ставит в него курсор, щелчок мимо, Enter или Esc — убирают. Работают ←, →, Home, End, Backspace и Delete. Набирать можно на любом языке и в любой раскладке (см. [главу 4](04-text.md#ввод-на-любом-языке)).
+A click on the field puts the cursor in it; a click elsewhere, Enter or Esc removes it. ←, →, Home, End, Backspace and Delete work. You can type in any language and any layout (see [chapter 4](04-text.md#input-in-any-language)).
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Имя", 360, 200)
+    ui := shoji.open("Name", 360, 200)
     name := shoji.text_new("")
     for ui.frame() {
-        ui.panel("Знакомство", 20, 20, 320, 160)
-        ui.input(name, "Как тебя зовут?")
-        if name.n > 0 { ui.label(shoji.cat(shoji.cat("Привет, ", name.get()), "!")) }
+        ui.panel("Introductions", 20, 20, 320, 160)
+        ui.input(name, "What's your name?")
+        if name.n > 0 { ui.label(shoji.cat(shoji.cat("Hello, ", name.get()), "!")) }
         ui.end()
     }
 }
 ```
 
-`ui.focus` — номер виджета с курсором, `0` — ни у кого. Поставь `ui.focus = 0`, чтобы убрать курсор из программы.
+`ui.focus` is the number of the widget with the cursor, `0` — none. Set `ui.focus = 0` to remove the cursor from code.
 
-## Картинки
+## Images
 
-`ui.image(img, h, радиус)` и `ui.image_button(img, s)` описаны в [главе 5](05-images.md).
+`ui.image(img, h, radius)` and `ui.image_button(img, s)` are covered in [chapter 5](05-images.md).
 
-## Клавиатура и мышь напрямую
+## Raw keyboard and mouse
 
-| Вызов | Что даёт |
+| Call | What it gives |
 | :--- | :--- |
-| `ui.key(KEY_…)` | клавишу нажали в этом кадре: `ui.key(KEY_ESC)`, `ui.key('s')` |
-| `ui.held(KEY_…)` | клавиша зажата |
-| `ui.mouse_x()`, `ui.mouse_y()` | мышь в логических координатах страницы |
-| `ui.time()` | миллисекунды с открытия окна — для анимаций |
-| `ui.win` | само окно (`*Window`): `ui.win.text`, `ui.win.mb`, `ui.win.wheel` и остальные поля встроенного окна |
+| `ui.key(KEY_…)` | the key was pressed in this frame: `ui.key(KEY_ESC)`, `ui.key('s')` |
+| `ui.held(KEY_…)` | the key is held down |
+| `ui.mouse_x()`, `ui.mouse_y()` | the mouse in logical page coordinates |
+| `ui.time()` | milliseconds since the window opened — for animations |
+| `ui.win` | the window itself (`*Window`): `ui.win.text`, `ui.win.mb`, `ui.win.wheel` and the other fields of the built-in window |
 
-Коды клавиш — физические клавиши, как у встроенного `window()`: в русской раскладке клавиша «Ф» — это `'a'`. Ctrl + `=`, `-`, `0` и Ctrl + колесо shoji забирает себе под зум.
+Key codes are physical keys, as with the built-in `window()`: in a Russian layout the key labeled «Ф» is still `'a'`. shoji takes Ctrl + `=`, `-`, `0` and Ctrl + wheel for zoom.
 
-Дальше: [Текст, шрифты и языки →](04-text.md)
+Next: [Text, fonts and languages →](04-text.md)

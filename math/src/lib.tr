@@ -1,4 +1,4 @@
-// math — целочисленная математика для Tori. use math -> math.pow(2, 10)
+// math — integer math for Tori. use math -> math.pow(2, 10)
 pub fn abs(x: i64) -> i64 {
     if x < 0 { return -x }
     return x
@@ -16,7 +16,7 @@ pub fn max(a: i64, b: i64) -> i64 {
 
 pub fn clamp(x: i64, lo: i64, hi: i64) -> i64 { return max(lo, min(x, hi)) }
 
-// x в степени n (n >= 0), быстрым возведением
+// x to the power n (n >= 0), by fast exponentiation
 pub fn pow(x: i64, n: i64) -> i64 {
     var r = 1
     var b = x
@@ -29,7 +29,7 @@ pub fn pow(x: i64, n: i64) -> i64 {
     return r
 }
 
-// целая часть квадратного корня (x >= 0)
+// the integer part of the square root (x >= 0)
 pub fn isqrt(x: i64) -> i64 {
     if x < 2 { return x }
     var r = x

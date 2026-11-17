@@ -1,44 +1,44 @@
-# 6. Масштаб
+# 6. Scaling
 
-Экраны бывают с масштабом 100 %, 125 %, 150 %, 200 %. Кнопка в 36 пикселей, которая хороша на обычном мониторе, на 4K-экране ноутбука выйдет мелкой. shoji решает это сам.
+Screens come at 100 %, 125 %, 150 %, 200 % scale. A 36-pixel button that looks fine on a regular monitor is tiny on a 4K laptop screen. shoji handles this by itself.
 
-## Логические пиксели
+## Logical pixels
 
-Всё, что программа передаёт в shoji, — в **логических пикселях**: размер окна в `shoji.open`, координаты панелей, `ui.space`, размеры шрифтов в `ui.styled` и `ui.text_at`, высота картинок, размеры в теме. На экране они умножаются на масштаб:
+Everything a program passes to shoji is in **logical pixels**: the window size in `shoji.open`, panel coordinates, `ui.space`, font sizes in `ui.styled` and `ui.text_at`, image heights, the sizes in the theme. On screen they are multiplied by the scale:
 
 ```
-масштаб = DPI экрана / 96 × зум
+scale = screen DPI / 96 × zoom
 ```
 
-* **DPI экрана.** В Linux — `Xft.dpi`: его выставляют настройки масштаба GNOME, KDE, Xfce. В Windows — системный DPI из «Параметры → Экран → Масштаб». 96 — это 100 %, 144 — 150 %, 192 — 200 %.
-* **Зум** — то, что выбрал пользователь, 100 % по умолчанию.
+* **Screen DPI.** On Linux — `Xft.dpi`: the scaling settings of GNOME, KDE and Xfce set it. On Windows — the system DPI from "Settings → Display → Scale". 96 is 100 %, 144 is 150 %, 192 is 200 %.
+* **Zoom** is what the user picked, 100 % by default.
 
-При масштабе 150 % `shoji.open("…", 640, 480)` откроет окно 960×720 настоящих пикселей, а внутри будет та же раскладка, только крупнее. Текст и скругления не растягиваются, а заново растеризуются под новый размер, поэтому остаются чёткими.
+At 150 % scale `shoji.open("…", 640, 480)` opens a window of 960×720 real pixels, with the same layout inside, only bigger. Text and rounded corners are not stretched but re-rasterized for the new size, so they stay sharp.
 
-## Зум
+## Zoom
 
-Пользователь меняет зум сам:
+The user changes the zoom by themselves:
 
-* Ctrl + колесо мыши;
-* Ctrl + `=` — крупнее, Ctrl + `-` — мельче, Ctrl + `0` — 100 %.
+* Ctrl + mouse wheel;
+* Ctrl + `=` — bigger, Ctrl + `-` — smaller, Ctrl + `0` — 100 %.
 
-Программа — так:
+A program does it like this:
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.set_zoom(%)` | поставить зум, от 50 до 400 |
-| `ui.zoom` | зум сейчас |
-| `ui.scale()` | итоговый масштаб в процентах: DPI × зум |
-| `ui.dpi` | DPI экрана |
+| `ui.set_zoom(%)` | set the zoom, from 50 to 400 |
+| `ui.zoom` | the current zoom |
+| `ui.scale()` | the final scale in percent: DPI × zoom |
+| `ui.dpi` | the screen DPI |
 
 ```tori
 use shoji
 
 fn main() {
-    ui := shoji.open("Зум", 360, 200)
+    ui := shoji.open("Zoom", 360, 200)
     for ui.frame() {
         ui.panel("", 20, 20, 320, 160)
-        ui.label(shoji.cat(shoji.cat("Масштаб ", shoji.num(ui.scale())), " %"))
+        ui.label(shoji.cat(shoji.cat("Scale ", shoji.num(ui.scale())), " %"))
         ui.row(3)
         if ui.button("A−") { ui.set_zoom(ui.zoom - 10) }
         if ui.button("100 %") { ui.set_zoom(100) }
@@ -48,15 +48,15 @@ fn main() {
 }
 ```
 
-Когда масштаб растёт, логическая ширина окна (`ui.width()`) уменьшается: в том же окне помещается меньше. Если раскладка адаптивная (см. [главу 2](02-layout.md#адаптивная-раскладка)), на крупном зуме панели сами перестроятся в меньшее число колонок.
+As the scale grows, the logical width of the window (`ui.width()`) shrinks: less fits into the same window. If the layout is responsive (see [chapter 2](02-layout.md#responsive-layout)), at a large zoom the panels rearrange into fewer columns by themselves.
 
-## Пиксели экрана
+## Screen pixels
 
-Пиксели экрана нужны только при рисовании на холсте `ui.canvas()` напрямую (см. [главу 8](08-drawing.md)):
+Screen pixels are only needed when drawing on the `ui.canvas()` directly (see [chapter 8](08-drawing.md)):
 
-* `ui.px(v)` переводит логическую длину в пиксели экрана;
-* мышь в пикселях экрана — `ui.win.mx`, `ui.win.my`.
+* `ui.px(v)` converts a logical length into screen pixels;
+* the mouse in screen pixels is `ui.win.mx`, `ui.win.my`.
 
-Всё остальное в shoji работает в логических пикселях само.
+Everything else in shoji works in logical pixels by itself.
 
-Дальше: [Темы →](07-themes.md)
+Next: [Themes →](07-themes.md)

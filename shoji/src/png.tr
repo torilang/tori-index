@@ -1,15 +1,15 @@
-// png — декодер PNG: inflate (zlib), фильтры строк, все типы цвета, глубина 1–16, без чересстрочности.
+// png — a PNG decoder: inflate (zlib), row filters, all color types, depth 1–16, no interlacing.
 use sys
 use draw
 
-pub var err: str                         // почему не получилось (после null)
+pub var err: str                         // why it failed (after null)
 
 // ---- inflate
 struct Bits {
     d: *u8
     n: i64
-    p: i64                               // байт
-    bit: i64                             // бит в нём
+    p: i64                               // byte
+    bit: i64                             // bit in it
     out: *u8
     on: i64
     cap: i64
@@ -221,7 +221,7 @@ fn inflate(b: *Bits) {
     }
 }
 
-fn ord(i: i64) -> i64 {                  // порядок длин кодов длин
+fn ord(i: i64) -> i64 {                  // the order of code length code lengths
     switch i {
         0 => return 16
         1 => return 17
@@ -268,11 +268,11 @@ fn fail(why: str) -> *draw.Image {
     return null
 }
 
-// байты файла PNG -> картинка | null (причина — в err)
+// PNG file bytes -> an image | null (the reason is in err)
 pub fn decode_png(data: str) -> *draw.Image {
     d := data.ptr
     n := @as(i64, data.span)
-    if n < 33 || d[1] != 'P' || d[2] != 'N' || d[3] != 'G' { return fail("это не PNG") }
+    if n < 33 || d[1] != 'P' || d[2] != 'N' || d[3] != 'G' { return fail("not a PNG") }
     var w = 0
     var h = 0
     var depth = 0
@@ -281,21 +281,21 @@ pub fn decode_png(data: str) -> *draw.Image {
     var nplte = 0
     var trns = 0
     var ntrns = 0
-    zd := sys.alloc(n)                   // все IDAT подряд
+    zd := sys.alloc(n)                   // all IDAT chunks back to back
     var zn = 0
     var p = 8
     for p + 8 <= n {
         len := be32(d, p)
         typ := be32(d, p + 4)
         body := p + 8
-        if len < 0 || body + len > n { return fail("файл обрезан") }
+        if len < 0 || body + len > n { return fail("truncated file") }
         switch typ {
             0x49484452 => {              // IHDR
                 w = be32(d, body)
                 h = be32(d, body + 4)
                 depth = @as(i64, d[body + 8])
                 ctype = @as(i64, d[body + 9])
-                if d[body + 12] != 0 { return fail("чересстрочный PNG не поддерживается") }
+                if d[body + 12] != 0 { return fail("interlaced PNG is not supported") }
             }
             0x504C5445 => {              // PLTE
                 plte = body
@@ -313,25 +313,25 @@ pub fn decode_png(data: str) -> *draw.Image {
         if typ == 0x49454E44 { break }
         p = body + len + 4
     }
-    if w <= 0 || h <= 0 || w > 16384 || h > 16384 { return fail("неверный размер") }
+    if w <= 0 || h <= 0 || w > 16384 || h > 16384 { return fail("invalid size") }
     var ch = 1
     switch ctype {
         2 => ch = 3
         4 => ch = 2
         6 => ch = 4
     }
-    bpp := ch * depth                    // бит на пиксель
+    bpp := ch * depth                    // bits per pixel
     stride := (w * bpp + 7) / 8
     bytes := imax(1, bpp / 8)
     b := @as(*Bits, sys.alloc(@size(Bits)))
-    b.d = zd + 2                         // без заголовка zlib
+    b.d = zd + 2                         // without the zlib header
     b.n = zn - 2
     b.cap = (stride + 1) * h
     b.out = sys.alloc(b.cap + 16)
     inflate(b)
-    if b.bad || b.on < b.cap { return fail("испорченные данные") }
+    if b.bad || b.on < b.cap { return fail("corrupted data") }
     raw := b.out
-    for y in 0..h {                      // фильтры строк
+    for y in 0..h {                      // row filters
         row := raw + y * (stride + 1)
         ft := @as(i64, row[0])
         cur := row + 1
@@ -398,7 +398,7 @@ fn imax(a: i64, b: i64) -> i64 {
     return b
 }
 
-// k-е значение строки глубиной depth бит
+// the k-th value of a row with depth bits per value
 fn sample(row: *u8, k: i64, depth: i64) -> i64 {
     if depth == 8 { return @as(i64, row[k]) }
     if depth == 16 { return @as(i64, row[k * 2]) }
@@ -407,7 +407,7 @@ fn sample(row: *u8, k: i64, depth: i64) -> i64 {
     return (v >> (8 - depth - bit % 8)) & ((1 << depth) - 1)
 }
 
-// то же, приведённое к 0..255
+// the same, scaled to 0..255
 fn level(row: *u8, k: i64, depth: i64) -> i64 {
     if depth == 16 { return (((@as(i64, row[k * 2]) << 8) | @as(i64, row[k * 2 + 1])) * 255 + 32767) / 65535 }
     v := sample(row, k, depth)

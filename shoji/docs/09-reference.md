@@ -1,123 +1,123 @@
-# Справочник
+# Reference
 
-Все размеры и координаты в вызовах `ui.…` — логические пиксели (см. [главу 6](06-scale.md)), координаты — от верха страницы. Функции модулей `draw` и `font` работают в пикселях экрана.
+All sizes and coordinates in `ui.…` calls are logical pixels (see [chapter 6](06-scale.md)); coordinates are from the top of the page. The functions of the `draw` and `font` modules work in screen pixels.
 
-## Пакет `shoji`
+## The `shoji` package
 
-| Функция | Что делает |
+| Function | What it does |
 | :--- | :--- |
-| `open(заголовок, w, h) -> *Ui` | окно `w`×`h` и интерфейс к нему; окно растягивается |
-| `attach(win) -> *Ui` | интерфейс к окну из встроенного `window()` |
-| `load_font(путь) -> *Font` | `.ttf`, `.otf`, `.ttc` или `null` |
-| `default_font() -> *Font` | встроенный Noto Sans |
-| `fallback(f)` | запасной шрифт для недостающих символов (до 32) |
-| `system_fonts(bool)` | искать недостающие символы в шрифтах системы (по умолчанию да) |
-| `load_image(путь) -> *Image` | PNG или `null` |
-| `image_error() -> str` | почему не открылась картинка |
-| `text_new(s) -> *Text` | строка для поля ввода (до 255 байт) |
-| `num(v) -> str` | число в строку (живёт несколько кадров) |
-| `cat(a, b) -> str` | склейка (живёт несколько кадров) |
-| `count(варианты) -> i64` | сколько вариантов в строке через `\|` |
-| `item(варианты, k) -> str` | `k`-й вариант |
-| `text_width(шрифт, размер, s) -> i64` | ширина строки в пикселях экрана |
+| `open(title, w, h) -> *Ui` | a `w`×`h` window and a UI for it; the window is resizable |
+| `attach(win) -> *Ui` | a UI for a window from the built-in `window()` |
+| `load_font(path) -> *Font` | `.ttf`, `.otf`, `.ttc` or `null` |
+| `default_font() -> *Font` | the built-in Noto Sans |
+| `fallback(f)` | a fallback font for missing characters (up to 32) |
+| `system_fonts(bool)` | look up missing characters in system fonts (yes by default) |
+| `load_image(path) -> *Image` | a PNG or `null` |
+| `image_error() -> str` | why an image failed to open |
+| `text_new(s) -> *Text` | a string for a text field (up to 255 bytes) |
+| `num(v) -> str` | a number as a string (lives for a few frames) |
+| `cat(a, b) -> str` | joining (lives for a few frames) |
+| `count(options) -> i64` | how many options a `\|`-separated string has |
+| `item(options, k) -> str` | the `k`-th option |
+| `text_width(font, size, s) -> i64` | string width in screen pixels |
 
-## Кадр и окно
+## Frame and window
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.frame() -> bool` | закончить кадр, показать, разобрать ввод, начать новый; `false` — окно закрыли |
-| `ui.begin()`, `ui.finish()` | начало и конец кадра вручную (несколько окон) |
-| `ui.width()`, `ui.height()` | размер окна |
-| `ui.page_height(h)` | высота страницы: что ниже окна, листается |
-| `ui.time() -> i64` | мс с открытия окна |
-| `ui.mouse_x()`, `ui.mouse_y()` | мышь |
-| `ui.key(k)`, `ui.held(k)` | клавиша нажата в этом кадре, зажата |
+| `ui.frame() -> bool` | finish the frame, show it, process input, start a new one; `false` — the window was closed |
+| `ui.begin()`, `ui.finish()` | start and end a frame by hand (several windows) |
+| `ui.width()`, `ui.height()` | the window size |
+| `ui.page_height(h)` | the page height: whatever is below the window scrolls |
+| `ui.time() -> i64` | ms since the window opened |
+| `ui.mouse_x()`, `ui.mouse_y()` | the mouse |
+| `ui.key(k)`, `ui.held(k)` | the key was pressed in this frame, is held down |
 
-## Масштаб
+## Scaling
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.scale() -> i64` | масштаб, %: DPI / 96 × зум |
-| `ui.set_zoom(%)` | зум от 50 до 400 |
-| `ui.px(v) -> i64` | логическая длина в пикселях экрана |
+| `ui.scale() -> i64` | the scale, %: DPI / 96 × zoom |
+| `ui.set_zoom(%)` | zoom from 50 to 400 |
+| `ui.px(v) -> i64` | a logical length in screen pixels |
 
-## Вид
+## Look
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.dark()`, `ui.light()` | готовая тема |
-| `ui.accent(цвет)` | цвет акцента |
-| `ui.set_font(f)`, `ui.set_bold(f)` | основной шрифт, шрифт заголовков |
+| `ui.dark()`, `ui.light()` | a ready-made theme |
+| `ui.accent(color)` | the accent color |
+| `ui.set_font(f)`, `ui.set_bold(f)` | the main font, the heading font |
 
-## Раскладка
+## Layout
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.panel(заголовок, x, y, w, h)` | панель; виджеты внутри — колонкой до `end()` |
-| `ui.area(x, y, w)` | колонка без фона до `end()` |
-| `ui.end()` | конец панели или колонки |
-| `ui.row(n)` | следующие `n` виджетов — в ряд |
-| `ui.space(h)` | отступ |
-| `ui.next(h) -> Rect` | место под свой виджет |
+| `ui.panel(title, x, y, w, h)` | a panel; the widgets inside form a column until `end()` |
+| `ui.area(x, y, w)` | a column without a background until `end()` |
+| `ui.end()` | the end of a panel or column |
+| `ui.row(n)` | the next `n` widgets go in a row |
+| `ui.space(h)` | spacing |
+| `ui.next(h) -> Rect` | room for your own widget |
 
-## Виджеты
+## Widgets
 
-| Вызов | Результат |
+| Call | Result |
 | :--- | :--- |
-| `ui.label(s)`, `ui.note(s)`, `ui.heading(s)` | текст, подпись, заголовок |
-| `ui.para(s)` | абзац с переносом по словам |
-| `ui.styled(s, шрифт, размер, цвет)` | текст любым шрифтом |
-| `ui.separator()` | линия |
-| `ui.button(s) -> bool` | кнопка: нажали |
-| `ui.primary(s) -> bool` | кнопка цветом акцента |
-| `ui.image_button(img, s) -> bool` | кнопка с картинкой |
-| `ui.checkbox(s, &b) -> bool` | флажок: изменился |
-| `ui.toggle(s, &b) -> bool` | переключатель: изменился |
-| `ui.radio(s, &v, значение) -> bool` | вариант: выбрали |
-| `ui.slider(&v, от, до) -> bool` | ползунок: изменился |
-| `ui.progress(v, max)` | полоса прогресса |
-| `ui.dropdown(&v, варианты) -> bool` | выпадающий список: выбрали |
-| `ui.tabs(&v, варианты) -> bool` | вкладки: переключили |
-| `ui.input(t, подсказка) -> bool` | поле ввода: текст изменился |
-| `ui.image(img, h, радиус)` | картинка |
+| `ui.label(s)`, `ui.note(s)`, `ui.heading(s)` | text, a caption, a heading |
+| `ui.para(s)` | a paragraph with word wrapping |
+| `ui.styled(s, font, size, color)` | text in any font |
+| `ui.separator()` | a line |
+| `ui.button(s) -> bool` | a button: pressed |
+| `ui.primary(s) -> bool` | a button in the accent color |
+| `ui.image_button(img, s) -> bool` | a button with an image |
+| `ui.checkbox(s, &b) -> bool` | a checkbox: changed |
+| `ui.toggle(s, &b) -> bool` | a toggle: changed |
+| `ui.radio(s, &v, value) -> bool` | an option: picked |
+| `ui.slider(&v, lo, hi) -> bool` | a slider: changed |
+| `ui.progress(v, max)` | a progress bar |
+| `ui.dropdown(&v, options) -> bool` | a dropdown: picked |
+| `ui.tabs(&v, options) -> bool` | tabs: switched |
+| `ui.input(t, hint) -> bool` | a text field: the text changed |
+| `ui.image(img, h, radius)` | an image |
 
-## Рисование
+## Drawing
 
-| Вызов | Что делает |
+| Call | What it does |
 | :--- | :--- |
-| `ui.rect(x, y, w, h, радиус, цвет)` | скруглённый прямоугольник |
-| `ui.text_at(x, y, s, шрифт, размер, цвет) -> ширина` | текст |
-| `ui.picture(img, x, y, w, h, радиус)` | картинка в прямоугольник |
-| `ui.text_width(шрифт, размер, s) -> i64` | ширина строки |
-| `ui.canvas() -> *Canvas` | холст для `shoji/draw` и `shoji/font` |
+| `ui.rect(x, y, w, h, radius, color)` | a rounded rectangle |
+| `ui.text_at(x, y, s, font, size, color) -> width` | text |
+| `ui.picture(img, x, y, w, h, radius)` | an image into a rectangle |
+| `ui.text_width(font, size, s) -> i64` | string width |
+| `ui.canvas() -> *Canvas` | a canvas for `shoji/draw` and `shoji/font` |
 
-## Поля `Ui`
+## `Ui` fields
 
-| Поле | Что в нём |
+| Field | What it holds |
 | :--- | :--- |
-| `win` | окно (`*Window`) |
-| `th` | тема (`Theme`), см. [главу 7](07-themes.md) |
-| `font`, `bold` | шрифты |
-| `zoom`, `dpi` | зум, %, и DPI экрана |
-| `scroll` | прокрутка страницы |
-| `focus` | номер поля ввода с курсором, `0` — нет |
+| `win` | the window (`*Window`) |
+| `th` | the theme (`Theme`), see [chapter 7](07-themes.md) |
+| `font`, `bold` | the fonts |
+| `zoom`, `dpi` | the zoom, %, and the screen DPI |
+| `scroll` | the page scroll |
+| `focus` | the number of the text field with the cursor, `0` — none |
 
-## Типы
+## Types
 
-| Тип | Поля |
+| Type | Fields |
 | :--- | :--- |
 | `Rect` | `x`, `y`, `w`, `h` |
-| `Text` | `n` — длина в байтах; `get()`, `set(s)` |
+| `Text` | `n` — length in bytes; `get()`, `set(s)` |
 | `draw.Image` | `w`, `h`, `px` (`0xAARRGGBB`) |
-| `draw.Canvas` | `px` (`0xRRGGBB`), `w`, `h`, обрезка `cx0`, `cy0`, `cx1`, `cy1` |
-| `font.Font` | шрифт: передаётся в `set_font`, `styled`, `text_at` |
+| `draw.Canvas` | `px` (`0xRRGGBB`), `w`, `h`, the clip `cx0`, `cy0`, `cx1`, `cy1` |
+| `font.Font` | a font: passed to `set_font`, `styled`, `text_at` |
 
-## Модули пакета
+## Package modules
 
-| Модуль | Что внутри |
+| Module | What's inside |
 | :--- | :--- |
-| `shoji` | интерфейс: `Ui`, темы, раскладка, виджеты |
-| `shoji/draw` | холст, скругления, тени, растеризатор со сглаживанием, картинки |
-| `shoji/font` | шрифты TrueType и OpenType, запасные шрифты, кэш глифов, текст |
-| `shoji/png` | декодер PNG: `png.decode_png(байты) -> *Image` |
-| `shoji/sys` | память и файлы: `sys.read_file`, `sys.write_file`, `sys.map_file`, `sys.ms` |
+| `shoji` | the UI: `Ui`, themes, layout, widgets |
+| `shoji/draw` | the canvas, rounded corners, shadows, the anti-aliasing rasterizer, images |
+| `shoji/font` | TrueType and OpenType fonts, fallback fonts, the glyph cache, text |
+| `shoji/png` | the PNG decoder: `png.decode_png(bytes) -> *Image` |
+| `shoji/sys` | memory and files: `sys.read_file`, `sys.write_file`, `sys.map_file`, `sys.ms` |
